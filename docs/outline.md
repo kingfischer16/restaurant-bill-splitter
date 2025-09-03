@@ -32,13 +32,15 @@ This **Plan -> Review -> Execute -> Review** cycle is mandatory.
 The application must provide the following functionalities:
 
 *   **F1: Session Persistence:** The app must retain all user-entered data (items, friends, assignments) for the duration of a user's browser session.
-*   **F2: Input Restaurant Name:** A text input field to enter the name of the restaurant.
-*   **F3: Add Menu Items:** A form to input an item's name (text) and its cost (numeric). Added items must appear in a list. The cost must be greater than zero.
-*   **F4: Add Friends:** A form to input a friend's name (text). Empty names should not be added. Duplicate names should be handled gracefully.
-*   **F5: Display & Assign Items:** The list of added items must be displayed clearly. Each item must have an interactive element (a multi-select dropdown) allowing the user to select one or more friends who shared that item.
-*   **F6: Calculate Bill Split:** A button that calculates the total amount owed by each friend. An item's cost is to be divided equally among all friends assigned to it.
-*   **F7: Display Results:** After calculation, the app must clearly display each friend's name and the total amount they owe.
-*   **F8: Export to XLSX:** A button to download the item list (name, cost, and who ordered it) as an `.xlsx` file.
+*   **F2: Restaurant Selection:** Dropdown to select from pre-configured restaurants or choose "Custom Restaurant" for manual entry.
+*   **F2B: Course-Based Pricing:** Support for restaurants with course pricing models (base course price + individual item surcharges).
+*   **F3: Add Menu Items:** A form to input an item's name, category, and cost. Items include category classification (Starter, Main, Dessert, Drink, Other). Added items must appear in a list.
+*   **F4: Add Friends:** Simple input field to add friend names. Empty names and duplicates are prevented. Input field clears automatically after adding.
+*   **F5: Friend-Centric Assignment:** For each friend, allow selection of menu items with quantity controls. Course items (Starter/Main/Dessert) limited to quantity 1, Drinks/Other unlimited.
+*   **F5B: Real-Time Totals:** Display running totals for each friend as items are assigned, including course-based pricing calculations.
+*   **F6: Calculate Bill Split:** Each friend pays full cost for items they ordered (no cost sharing between friends).
+*   **F7: Display Results:** Real-time display of each friend's items and total amount owed with category ordering (Starter→Main→Dessert→Drink→Other).
+*   **F8: Export to XLSX:** A button to download the item list (name, category, cost, and who ordered it) as an `.xlsx` file.
 *   **F9: Reset Session:** A button to clear all entered data and start over.
 
 ---
@@ -51,81 +53,87 @@ The application must provide the following functionalities:
     *   `streamlit`: For the web framework and all UI components.
     *   `pandas`: To structure the data for clean and easy export to XLSX.
     *   `openpyxl`: The engine for Pandas to write `.xlsx` files.
+    *   `json`: For loading pre-configured restaurant data.
 *   **State Management:**
-    *   All application state (list of items, friends, etc.) will be managed using Streamlit's `st.session_state` object. This object will serve as the in-memory cache for the user's session, fulfilling requirement **F1**.
+    *   All application state (list of items, friends, etc.) will be managed using Streamlit's `st.session_state` object. Session state keys use `bill_` prefix to avoid naming conflicts.
 *   **Data Structures:**
-    *   **Items List:** A `list` of `dict` objects stored in `st.session_state.items`. Each dictionary must adhere to this structure:
+    *   **Items List:** A `list` of `dict` objects stored in `st.session_state.bill_items`. Each dictionary structure:
         ```python
         {
             "name": str,
+            "category": str,  # Starter, Main, Dessert, Drink, Other
             "cost": float,
-            "ordered_by": list[str] # A list of friend names
+            "ordered_by": list[str], # Friend names (duplicates for quantities)
+            "is_course_item": bool   # For course-based pricing
         }
         ```
-    *   **Friends List:** A simple `list` of `str` objects stored in `st.session_state.friends`.
+    *   **Friends List:** A simple `list` of `str` objects stored in `st.session_state.bill_friends`.
+    *   **Restaurant Data:** Loaded from `restaurants.json` with course pricing and menu information.
 *   **File Structure:**
     *   `app.py`: The single Python file containing all application logic and UI definitions.
+    *   `restaurants.json`: Pre-configured restaurant menus with course pricing data.
     *   `requirements.txt`: A file listing all library dependencies.
 
 ---
 
-## 5. Proposed UI/UX Flow
+## 5. UI/UX Flow (Mobile-First Single Column)
 
-The application interface should be organized into a logical, top-to-bottom flow:
+The application interface is organized in a logical, mobile-optimized single-column flow:
 
 1.  **Header:** Title of the app and a brief instructional subtitle.
-2.  **Inputs Section:** Use `st.columns` to create a two-column layout.
-    *   **Left Column:** Restaurant name input, a `st.form` to add menu items, and a `st.form` to add friends.
-    *   **Right Column:** A header for "Assign Items". This area will display the list of added items and their corresponding assignment widgets.
-3.  **Actions & Results Section:**
-    *   A primary button styled with `type="primary"` to "Calculate Bill Split".
-    *   A display area for the results, using `st.metric` for each friend to show their total owed.
-    *   A `st.download_button` for the XLSX export.
-    *   A final, secondary button to "Clear All Data".
+2.  **Restaurant Setup Section:**
+    *   Restaurant selection dropdown (pre-configured or custom)
+    *   Restaurant name input (auto-populated or manual)
+    *   Course pricing display for course-based restaurants
+    *   Add menu items form (item name, category, cost)
+    *   Current menu display
+3.  **Add Friends Section:**
+    *   Simple friend name input field with auto-clear functionality
+    *   Current friends list display
+4.  **Friend Orders Section:**
+    *   Individual sections for each friend
+    *   Item selection dropdown (showing unselected items)
+    *   Selected items with quantity controls and remove buttons
+    *   Real-time total calculation per friend
+5.  **Actions & Results Section:**
+    *   Calculate Bill Split button (placeholder)
+    *   XLSX Export functionality (placeholder)  
+    *   Reset Session functionality (placeholder)
 
 ---
 
 ## 6. Implementation Plan
 
-**Step 0: Environment Setup**
-*   Propose the contents for `requirements.txt`. The file should pin the major versions of the libraries (e.g., `streamlit~=1.0`, `pandas~=2.0`).
+**Step 0: Environment Setup** ✅ **COMPLETED**
+*   Created `requirements.txt` with streamlit, pandas, and openpyxl dependencies.
 
-**Step 1: Application Skeleton and State Initialization**
-*   Set up the page configuration using `st.set_page_config` (title, layout).
-*   Write the initialization block that checks for `items` and `friends` in `st.session_state` and creates them as empty lists if they don't exist.
-*   Define the main title and the two-column layout structure.
+**Step 1: Application Skeleton and State Initialization** ✅ **COMPLETED** 
+*   Set up page configuration with mobile-first single-column layout.
+*   Initialize session state with `bill_items`, `bill_friends`, and `selected_restaurant`.
+*   Implemented mobile-optimized UI flow with clear section separations.
 
-**Step 2: Implement Input Forms**
-*   In the left column, create the `st.text_input` for the restaurant name.
-*   Create a `st.form` for adding menu items. Include validation to ensure the item name is not empty and the cost is a positive number. On valid submission, append the new item dictionary to `st.session_state.items`.
-*   Create a separate `st.form` for adding friends. Include validation to prevent adding empty or duplicate names.
+**Step 2: Restaurant Selection and Input Forms** ✅ **COMPLETED**
+*   Implemented restaurant selection dropdown with pre-configured restaurants from `restaurants.json`.
+*   Added course-based pricing support with automatic menu loading.
+*   Created menu item form with category classification and validation.
+*   Implemented friend input with auto-clearing functionality and duplicate prevention.
 
-**Step 3: Implement Item Display and Assignment UI**
-*   In the right column, iterate through `st.session_state.items`.
-*   For each item, display its name and cost.
-*   Next to each item, implement a `st.multiselect` widget.
-    *   `options`: `st.session_state.friends`.
-    *   `default`: The item's existing `ordered_by` list, to preserve selections on reruns.
-    *   `key`: A unique key must be generated for each widget (e.g., `f"ms_{i}"` where `i` is the loop index) to prevent state conflicts.
-    *   The return value of the multiselect should update the `ordered_by` list in the corresponding item's dictionary.
+**Step 3: Friend-Centric Assignment UI** ✅ **COMPLETED** 
+*   **REDESIGNED:** Changed from item-centric to friend-centric assignment model.
+*   Implemented quantity-based selection (course items max 1, drinks/other unlimited).
+*   Added real-time total calculation per friend with course-based pricing support.
+*   Created mobile-friendly item management with add/remove/quantity controls.
 
-**Step 4: Implement Bill Calculation Logic**
-*   Add the "Calculate Bill Split" button.
-*   When clicked, the button's logic should execute the following:
-    1.  Initialize a dictionary with friend names as keys and `0.0` as values.
-    2.  Iterate through `st.session_state.items`.
-    3.  For each item, check if the `ordered_by` list is not empty. If it is, calculate the `split_cost` (`item_cost / len(ordered_by)`).
-    4.  Add the `split_cost` to the total for each friend in the `ordered_by` list.
-    5.  After the loop, display the results for each friend using `st.metric`.
+**Step 4: Enhanced Bill Calculation Logic** ✅ **PARTIALLY COMPLETED**
+*   **REDESIGNED:** Each friend pays full cost for items they ordered (no cost sharing).
+*   Implemented real-time calculation with course-based pricing formulas.
+*   Added category-ordered item display (Starter→Main→Dessert→Drink→Other).
+*   **PENDING:** Formal "Calculate Bill Split" button and summary display.
 
-**Step 5: Implement XLSX Export Functionality**
-*   Define a separate helper function, `generate_xlsx()`. This function will:
-    1.  Create a pandas DataFrame from `st.session_state.items`.
-    2.  Use `io.BytesIO` to create an in-memory binary buffer.
-    3.  Write the DataFrame to the buffer in Excel format using `df.to_excel()`.
-    4.  Return the buffer's content.
-*   Add a `st.download_button` to the UI. The `data` argument for this button must call the `generate_xlsx()` function.
+**Step 5: XLSX Export Functionality** ⏳ **PENDING**
+*   Create export function for detailed bill breakdown with categories and quantities.
+*   Include course pricing breakdown in export data.
 
-**Step 6: Implement Reset Functionality**
-*   Add a final button, "Clear All Data".
-*   The on-click logic for this button should re-initialize all relevant keys in `st.session_state` (`items`, `friends`, etc.) to their empty default states and then trigger a `st.rerun()` to refresh the UI.
+**Step 6: Reset Functionality** ⏳ **PENDING**
+*   Implement complete session reset with confirmation dialog.
+*   Clear all restaurant data, friends, and assignments.
