@@ -35,6 +35,18 @@
           "is_course_item": true
         },
         {
+          "name": "Pankopaneret Flaesk",
+          "category": "Main",
+          "price": 0.00,
+          "is_course_item": true
+        },
+        {
+          "name": "Maanedsret",
+          "category": "Main",
+          "price": 0.00,
+          "is_course_item": true
+        },
+        {
           "name": "Rødgrod med fløde",
           "category": "Dessert",
           "price": 0.00,
@@ -43,25 +55,67 @@
         {
           "name": "Pandkager med is",
           "category": "Dessert",
-          "price": 75.00,
+          "price": 25.00,
+          "is_course_item": true
+        },
+        {
+          "name": "Rainbow Ice Cream",
+          "category": "Dessert",
+          "price": 25.00,
           "is_course_item": true
         },
         {
           "name": "Irish Coffee",
           "category": "Dessert",
-          "price": 50.00,
+          "price": 25.00,
           "is_course_item": true
         },
         {
-          "name": "Normal Beer",
+          "name": "Normal Beer (glass)",
           "category": "Drink",
           "price": 65.00,
           "is_course_item": false
         },
         {
-          "name": "Large Beer",
+          "name": "Large Beer (mass)",
           "category": "Drink",
-          "price": 120.00,
+          "price": 65.00,
+          "is_course_item": false
+        },
+        {
+          "name": "Sjus",
+          "category": "Drink",
+          "price": 90.00,
+          "is_course_item": false
+        },
+        {
+          "name": "Water",
+          "category": "Drink",
+          "price": 22.00,
+          "is_course_item": false
+        },
+        {
+          "name": "Coffee",
+          "category": "Drink",
+          "price": 25.00,
+          "is_course_item": false
+        },
+        {
+          "name": "Meatball",
+          "category": "Other",
+          "price": 50.00,
+          "is_course_item": false
+        },
+        {
+          "name": "Flaesktini",
+          "category": "Other",
+          "price": 100.00,
+          "is_course_item": false
+        },
+        {
+          "name": "Baerii Caviar (10g)",
+          "category": "Other",
+          "price": 125.00,
           "is_course_item": false
         }
       ]

@@ -163,13 +163,23 @@ function App() {
       newOrders[friendName] = [];
     }
 
+    const restaurantData = getSelectedRestaurantData();
+    const isCourseBasedRestaurant = restaurantData && restaurantData.pricing_model === 'course_based';
+    const isCourseItem = menuItem.is_course_item;
+    
     // Check if friend already has this item
     const existingOrderItem = newOrders[friendName].find(item => 
       item.name === menuItem.name
     );
 
     if (existingOrderItem) {
-      // Increment quantity
+      // For course-based restaurants, course items (Starter/Main/Dessert) can only have quantity 1
+      if (isCourseBasedRestaurant && isCourseItem && 
+          (menuItem.category === 'Starter' || menuItem.category === 'Main' || menuItem.category === 'Dessert')) {
+        showMessage(`${menuItem.name} is a course item and can only be ordered once`, 'warning');
+        return;
+      }
+      // Increment quantity for non-course items or items that allow multiples
       existingOrderItem.quantity += 1;
     } else {
       // Add new item
@@ -178,7 +188,8 @@ function App() {
         name: menuItem.name,
         cost: menuItem.price,
         quantity: 1,
-        category: menuItem.category
+        category: menuItem.category,
+        is_course_item: menuItem.is_course_item || false
       };
       newOrders[friendName].push(orderItem);
     }
@@ -215,15 +226,70 @@ function App() {
     showMessage('Item removed from order', 'info');
   };
 
-  const calculateTotalCost = () => {
-    return Object.values(orders).flat().reduce((total, item) => 
-      total + (item.cost * item.quantity), 0
-    );
-  };
-
   const calculateFriendTotal = (friendName) => {
     const friendOrders = orders[friendName] || [];
-    return friendOrders.reduce((total, item) => total + (item.cost * item.quantity), 0);
+    const restaurantData = getSelectedRestaurantData();
+    
+    // Check if this is a course-based restaurant
+    if (restaurantData && restaurantData.pricing_model === 'course_based') {
+      return calculateCoursePricingForFriend(friendName, restaurantData);
+    } else {
+      // Regular pricing: sum all item costs
+      return friendOrders.reduce((total, item) => total + (item.cost * item.quantity), 0);
+    }
+  };
+
+  const calculateCoursePricingForFriend = (friendName, restaurantData) => {
+    const friendOrders = orders[friendName] || [];
+    let total = 0;
+    
+    // Separate course items from non-course items (drinks, etc.)
+    const courseItems = [];
+    const nonCourseItems = [];
+    
+    friendOrders.forEach(orderItem => {
+      const menuItem = restaurantData.menu.find(m => m.name === orderItem.name);
+      if (menuItem && menuItem.is_course_item) {
+        // For course items, only count unique courses (ignore quantity > 1 for course items)
+        if (!courseItems.some(ci => ci.category === menuItem.category)) {
+          courseItems.push({
+            category: menuItem.category,
+            surcharge: menuItem.price || 0
+          });
+        }
+      } else {
+        // Non-course items (drinks, etc.) are charged normally
+        nonCourseItems.push(orderItem);
+      }
+    });
+    
+    // Calculate course base price
+    const courseCount = courseItems.length;
+    if (courseCount > 0) {
+      const coursePricing = restaurantData.course_pricing;
+      let basePrice = 0;
+      
+      if (courseCount === 1) {
+        basePrice = coursePricing['1_course'] || 0;
+      } else if (courseCount === 2) {
+        basePrice = coursePricing['2_course'] || 0;
+      } else if (courseCount >= 3) {
+        basePrice = coursePricing['3_course'] || 0;
+      }
+      
+      // Add surcharges for course items
+      const surcharges = courseItems.reduce((sum, item) => sum + item.surcharge, 0);
+      total += basePrice + surcharges;
+    }
+    
+    // Add non-course items (drinks, etc.)
+    total += nonCourseItems.reduce((sum, item) => sum + (item.cost * item.quantity), 0);
+    
+    return total;
+  };
+
+  const calculateTotalCost = () => {
+    return friends.reduce((total, friend) => total + calculateFriendTotal(friend), 0);
   };
 
   const getTotalItems = () => {
@@ -258,8 +324,71 @@ function App() {
     return [];
   };
 
-  const canAddQuantity = (category) => {
-    return category === 'Drink' || category === 'Other';
+  const canAddQuantity = (category, isCourseItem = false) => {
+    // For course-based restaurants, course items (Starter/Main/Dessert) cannot have quantity > 1
+    // Non-course items (Drink/Other) or non-course-based restaurants allow quantity adjustments
+    const restaurantData = getSelectedRestaurantData();
+    const isCourseBasedRestaurant = restaurantData && restaurantData.pricing_model === 'course_based';
+    
+    if (isCourseBasedRestaurant && isCourseItem) {
+      // Course items in course-based restaurants: only Drink allows quantity > 1
+      return category === 'Drink';
+    } else {
+      // Regular restaurants or non-course items: Drink and Other allow quantities
+      return category === 'Drink' || category === 'Other';
+    }
+  };
+
+  const getFriendCoursePricingBreakdown = (friendName) => {
+    const friendOrders = orders[friendName] || [];
+    const restaurantData = getSelectedRestaurantData();
+    
+    if (!restaurantData || restaurantData.pricing_model !== 'course_based') {
+      return null;
+    }
+    
+    const courseItems = [];
+    const nonCourseItems = [];
+    
+    friendOrders.forEach(orderItem => {
+      const menuItem = restaurantData.menu.find(m => m.name === orderItem.name);
+      if (menuItem && menuItem.is_course_item) {
+        if (!courseItems.some(ci => ci.category === menuItem.category)) {
+          courseItems.push({
+            name: menuItem.name,
+            category: menuItem.category,
+            surcharge: menuItem.price || 0
+          });
+        }
+      } else {
+        nonCourseItems.push({
+          name: orderItem.name,
+          cost: orderItem.cost,
+          quantity: orderItem.quantity
+        });
+      }
+    });
+    
+    const courseCount = courseItems.length;
+    let basePrice = 0;
+    
+    if (courseCount === 1) {
+      basePrice = restaurantData.course_pricing['1_course'] || 0;
+    } else if (courseCount === 2) {
+      basePrice = restaurantData.course_pricing['2_course'] || 0;
+    } else if (courseCount >= 3) {
+      basePrice = restaurantData.course_pricing['3_course'] || 0;
+    }
+    
+    const surcharges = courseItems.reduce((sum, item) => sum + item.surcharge, 0);
+    
+    return {
+      courseCount,
+      basePrice,
+      surcharges,
+      courseItems,
+      nonCourseItems
+    };
   };
 
   const renderStartPage = () => {
@@ -498,11 +627,22 @@ function App() {
 
   const renderOrdersSection = () => {
     const menuItems = getAllMenuItems();
+    const restaurantData = getSelectedRestaurantData();
+    const isCourseBasedRestaurant = restaurantData && restaurantData.pricing_model === 'course_based';
     
     return (
       <div className="card">
         <h2>🍽️ Order Management</h2>
         <h3>{restaurantName || selectedRestaurant}</h3>
+        
+        {isCourseBasedRestaurant && (
+          <div className="alert alert-info">
+            <strong>Course Pricing:</strong> 1 course: {restaurantData.course_pricing['1_course']} kr, 
+            2 courses: {restaurantData.course_pricing['2_course']} kr, 
+            3 courses: {restaurantData.course_pricing['3_course']} kr 
+            (+ any surcharges). Drinks charged separately.
+          </div>
+        )}
         
         {friends.length === 0 && (
           <div className="alert alert-warning">
@@ -559,7 +699,7 @@ function App() {
                             </div>
                           </div>
                           <div style={{float: 'right', display: 'flex', alignItems: 'center', gap: '5px'}}>
-                            {canAddQuantity(orderItem.category) && (
+                            {canAddQuantity(orderItem.category, orderItem.is_course_item) && (
                               <div className="quantity-control">
                                 <button 
                                   className="quantity-btn"
@@ -636,19 +776,56 @@ function App() {
           {friends.map(friend => {
             const friendTotal = calculateFriendTotal(friend);
             const friendItems = orders[friend] || [];
+            const coursePricing = getFriendCoursePricingBreakdown(friend);
             
             return (
               <div key={friend} className="friend-section">
                 <h4>{friend} - {friendTotal.toFixed(2)} kr</h4>
                 {friendItems.length > 0 ? (
-                  <ul>
-                    {friendItems.map((item) => (
-                      <li key={item.id}>
-                        {item.name} {item.quantity > 1 ? `× ${item.quantity}` : ''} - {(item.cost * item.quantity).toFixed(2)} kr
-                        {item.quantity > 1 && <span style={{color: '#666'}}> ({item.cost.toFixed(2)} kr each)</span>}
-                      </li>
-                    ))}
-                  </ul>
+                  <div>
+                    {coursePricing ? (
+                      <div>
+                        {coursePricing.courseCount > 0 && (
+                          <div style={{marginBottom: '10px'}}>
+                            <strong>Course Menu ({coursePricing.courseCount} course{coursePricing.courseCount > 1 ? 's' : ''}): {coursePricing.basePrice.toFixed(2)} kr</strong>
+                            <ul>
+                              {coursePricing.courseItems.map((item, index) => (
+                                <li key={index}>
+                                  {item.name} ({item.category})
+                                  {item.surcharge > 0 && <span> + {item.surcharge.toFixed(2)} kr surcharge</span>}
+                                </li>
+                              ))}
+                            </ul>
+                            {coursePricing.surcharges > 0 && (
+                              <div><strong>Total surcharges: {coursePricing.surcharges.toFixed(2)} kr</strong></div>
+                            )}
+                          </div>
+                        )}
+                        {coursePricing.nonCourseItems.length > 0 && (
+                          <div>
+                            <strong>Additional Items:</strong>
+                            <ul>
+                              {coursePricing.nonCourseItems.map((item, index) => (
+                                <li key={index}>
+                                  {item.name} {item.quantity > 1 ? `× ${item.quantity}` : ''} - {(item.cost * item.quantity).toFixed(2)} kr
+                                  {item.quantity > 1 && <span style={{color: '#666'}}> ({item.cost.toFixed(2)} kr each)</span>}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <ul>
+                        {friendItems.map((item) => (
+                          <li key={item.id}>
+                            {item.name} {item.quantity > 1 ? `× ${item.quantity}` : ''} - {(item.cost * item.quantity).toFixed(2)} kr
+                            {item.quantity > 1 && <span style={{color: '#666'}}> ({item.cost.toFixed(2)} kr each)</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 ) : (
                   <p style={{color: '#666', fontStyle: 'italic'}}>No items ordered</p>
                 )}
