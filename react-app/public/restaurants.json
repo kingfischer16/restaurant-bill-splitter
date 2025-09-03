@@ -73,42 +73,42 @@
         {
           "name": "Buffalo Wings",
           "category": "Starter",
-          "price": 9.00
+          "price": 63.00
         },
         {
           "name": "Loaded Nachos",
           "category": "Starter",
-          "price": 11.50
+          "price": 80.50
         },
         {
           "name": "Classic Cheeseburger",
           "category": "Main",
-          "price": 14.00
+          "price": 98.00
         },
         {
           "name": "BBQ Bacon Burger",
           "category": "Main",
-          "price": 16.50
+          "price": 115.50
         },
         {
           "name": "Chicken Caesar Wrap",
           "category": "Main",
-          "price": 12.50
+          "price": 87.50
         },
         {
           "name": "Chocolate Brownie",
           "category": "Dessert",
-          "price": 6.50
+          "price": 45.50
         },
         {
           "name": "Milkshake",
           "category": "Drink",
-          "price": 5.00
+          "price": 35.00
         },
         {
           "name": "Beer",
           "category": "Drink",
-          "price": 4.50
+          "price": 31.50
         }
       ]
     },
@@ -119,42 +119,42 @@
         {
           "name": "Edamame",
           "category": "Starter",
-          "price": 5.50
+          "price": 38.50
         },
         {
           "name": "Miso Soup",
           "category": "Starter",
-          "price": 4.00
+          "price": 28.00
         },
         {
           "name": "California Roll",
           "category": "Main",
-          "price": 8.50
+          "price": 59.50
         },
         {
           "name": "Salmon Teriyaki",
           "category": "Main",
-          "price": 22.00
+          "price": 154.00
         },
         {
           "name": "Chicken Ramen",
           "category": "Main",
-          "price": 15.00
+          "price": 105.00
         },
         {
           "name": "Mochi Ice Cream",
           "category": "Dessert",
-          "price": 6.00
+          "price": 42.00
         },
         {
           "name": "Green Tea",
           "category": "Drink",
-          "price": 3.00
+          "price": 21.00
         },
         {
           "name": "Sake",
           "category": "Drink",
-          "price": 7.50
+          "price": 52.50
         }
       ]
     }

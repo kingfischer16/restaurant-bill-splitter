@@ -286,7 +286,7 @@ function App() {
                     <strong>{party.name}</strong>
                     <div style={{fontSize: '14px', color: '#666'}}>
                       {party.restaurant_name || party.selected_restaurant} - 
-                      ${party.total_cost.toFixed(2)} - 
+                      {party.total_cost.toFixed(2)} kr - 
                       {new Date(party.last_updated).toLocaleDateString()}
                     </div>
                   </div>
@@ -389,7 +389,7 @@ function App() {
               <div>
                 <strong>{friend}</strong>
                 <div style={{fontSize: '14px', color: '#666'}}>
-                  Total: ${calculateFriendTotal(friend).toFixed(2)} 
+                  Total: {calculateFriendTotal(friend).toFixed(2)} kr 
                   ({(orders[friend] || []).reduce((sum, item) => sum + item.quantity, 0)} items)
                 </div>
               </div>
@@ -472,7 +472,7 @@ function App() {
             {customMenuItems.map((item, index) => (
               <div key={index} className="item">
                 <div>
-                  <strong>{item.name}</strong> - ${item.price.toFixed(2)}
+                  <strong>{item.name}</strong> - {item.price.toFixed(2)} kr
                   <div style={{fontSize: '14px', color: '#666'}}>{item.category}</div>
                 </div>
                 <button 
@@ -520,7 +520,7 @@ function App() {
           <div>
             {friends.map(friend => (
               <div key={friend} className="friend-section">
-                <h4>{friend} - ${calculateFriendTotal(friend).toFixed(2)}</h4>
+                <h4>{friend} - {calculateFriendTotal(friend).toFixed(2)} kr</h4>
                 
                 <div style={{marginBottom: '15px'}}>
                   <label>Add Item:</label>
@@ -540,7 +540,7 @@ function App() {
                     <option value="">Select an item...</option>
                     {menuItems.map((item, index) => (
                       <option key={index} value={item.name}>
-                        {item.name} - ${item.price.toFixed(2)} ({item.category})
+                        {item.name} - {item.price.toFixed(2)} kr ({item.category})
                       </option>
                     ))}
                   </select>
@@ -553,9 +553,9 @@ function App() {
                       {orders[friend].map((orderItem) => (
                         <div key={orderItem.id} className="item">
                           <div>
-                            <strong>{orderItem.name}</strong> - ${orderItem.cost.toFixed(2)} each
+                            <strong>{orderItem.name}</strong> - {orderItem.cost.toFixed(2)} kr each
                             <div style={{fontSize: '14px', color: '#666'}}>
-                              {orderItem.category} • Total: ${(orderItem.cost * orderItem.quantity).toFixed(2)}
+                              {orderItem.category} • Total: {(orderItem.cost * orderItem.quantity).toFixed(2)} kr
                             </div>
                           </div>
                           <div style={{float: 'right', display: 'flex', alignItems: 'center', gap: '5px'}}>
@@ -612,7 +612,7 @@ function App() {
       <div className="row" style={{marginBottom: '20px'}}>
         <div className="col">
           <div className="metric">
-            <div className="metric-value">${calculateTotalCost().toFixed(2)}</div>
+            <div className="metric-value">{calculateTotalCost().toFixed(2)} kr</div>
             <div className="metric-label">Total Bill</div>
           </div>
         </div>
@@ -639,13 +639,13 @@ function App() {
             
             return (
               <div key={friend} className="friend-section">
-                <h4>{friend} - ${friendTotal.toFixed(2)}</h4>
+                <h4>{friend} - {friendTotal.toFixed(2)} kr</h4>
                 {friendItems.length > 0 ? (
                   <ul>
                     {friendItems.map((item) => (
                       <li key={item.id}>
-                        {item.name} {item.quantity > 1 ? `× ${item.quantity}` : ''} - ${(item.cost * item.quantity).toFixed(2)}
-                        {item.quantity > 1 && <span style={{color: '#666'}}> (${item.cost.toFixed(2)} each)</span>}
+                        {item.name} {item.quantity > 1 ? `× ${item.quantity}` : ''} - {(item.cost * item.quantity).toFixed(2)} kr
+                        {item.quantity > 1 && <span style={{color: '#666'}}> ({item.cost.toFixed(2)} kr each)</span>}
                       </li>
                     ))}
                   </ul>
