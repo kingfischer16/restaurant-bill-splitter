@@ -391,6 +391,36 @@ function App() {
     };
   };
 
+  const generateEmailBillSummary = () => {
+    const totalCost = calculateTotalCost();
+    const currentRestaurantName = restaurantName || selectedRestaurant;
+    const currentDate = new Date().toLocaleDateString('da-DK');
+    
+    let emailBody = `Restaurant Bill Split - ${partyName || currentRestaurantName}\n`;
+    emailBody += `Date: ${currentDate}\n`;
+    emailBody += `Restaurant: ${currentRestaurantName}\n\n`;
+    
+    // Add individual totals
+    friends.forEach(friend => {
+      const friendTotal = calculateFriendTotal(friend);
+      if (friendTotal > 0) {
+        emailBody += `${friend} - ${friendTotal.toFixed(2)} kr\n`;
+      }
+    });
+    
+    emailBody += `\nTotal: ${totalCost.toFixed(2)} kr\n`;
+    
+    return emailBody;
+  };
+
+  const handleEmailBills = () => {
+    const emailBody = generateEmailBillSummary();
+    const subject = `Restaurant Bill Split - ${partyName || restaurantName || selectedRestaurant}`;
+    
+    const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`;
+    window.open(mailtoUrl);
+  };
+
   const renderStartPage = () => {
     const savedParties = loadSavedParties();
     
@@ -772,7 +802,28 @@ function App() {
 
       {friends.length > 0 && (
         <div>
-          <h3>Individual Bills</h3>
+          <h3>Quick Summary</h3>
+          <div style={{marginBottom: '20px'}}>
+            {friends.map(friend => {
+              const friendTotal = calculateFriendTotal(friend);
+              return friendTotal > 0 ? (
+                <div key={friend} style={{display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #eee'}}>
+                  <span><strong>{friend}</strong></span>
+                  <span><strong>{friendTotal.toFixed(2)} kr</strong></span>
+                </div>
+              ) : null;
+            })}
+          </div>
+
+          {friends.length > 0 && calculateTotalCost() > 0 && (
+            <div style={{marginBottom: '30px', textAlign: 'center'}}>
+              <button className="btn btn-success" onClick={handleEmailBills}>
+                📧 Email Bills
+              </button>
+            </div>
+          )}
+
+          <h3>Detailed Breakdown</h3>
           {friends.map(friend => {
             const friendTotal = calculateFriendTotal(friend);
             const friendItems = orders[friend] || [];

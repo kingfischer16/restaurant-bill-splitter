@@ -65,9 +65,15 @@
           "is_course_item": true
         },
         {
-          "name": "Irish Coffee",
+          "name": "Irish Coffee (Dessert)",
           "category": "Dessert",
           "price": 25.00,
+          "is_course_item": true
+        },
+        {
+          "name": "Irish Coffee (Drink)",
+          "category": "Drink",
+          "price": 90.00,
           "is_course_item": true
         },
         {
@@ -79,7 +85,7 @@
         {
           "name": "Large Beer (mass)",
           "category": "Drink",
-          "price": 65.00,
+          "price": 120.00,
           "is_course_item": false
         },
         {
@@ -91,7 +97,7 @@
         {
           "name": "Water",
           "category": "Drink",
-          "price": 22.00,
+          "price": 25.00,
           "is_course_item": false
         },
         {
