@@ -1,0 +1,8 @@
+-r requirements.txt
+
+# Development and testing dependencies
+pytest>=7.4.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.5.0
+streamlit-testing>=0.1.0
