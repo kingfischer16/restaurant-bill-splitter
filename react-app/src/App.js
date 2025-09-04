@@ -51,6 +51,31 @@ function App() {
     setCurrentPartyId(id);
   };
 
+  // Input validation utilities
+  const sanitizeTextInput = (input) => {
+    if (typeof input !== 'string') return '';
+    // Normalize Unicode, remove control characters, limit length, trim whitespace
+    // eslint-disable-next-line no-control-regex
+    const normalized = input.normalize('NFC').replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+    return normalized.substring(0, 100).trim();
+  };
+
+  const normalizeForComparison = (str) => {
+    if (typeof str !== 'string') return '';
+    return sanitizeTextInput(str).toLowerCase().normalize('NFC');
+  };
+
+  const validatePrice = (priceString, allowZero = false) => {
+    if (typeof priceString !== 'string' && typeof priceString !== 'number') return null;
+    const price = parseFloat(priceString);
+    if (isNaN(price) || !isFinite(price)) return null;
+    if (price < 0) return null;
+    if (!allowZero && price === 0) return null;
+    // Limit to reasonable price range (0-99999.99)
+    if (price > 99999.99) return null;
+    return Math.round(price * 100) / 100; // Round to 2 decimal places
+  };
+
   const showMessage = (message, type = 'info') => {
     // Clear existing timeout to prevent multiple alerts
     if (alertTimeoutRef.current) {
@@ -66,7 +91,8 @@ function App() {
   };
 
   const saveCurrentParty = () => {
-    if (!currentPartyId || !partyName.trim()) {
+    const sanitizedPartyName = sanitizeTextInput(partyName);
+    if (!currentPartyId || !sanitizedPartyName) {
       showMessage('Party name is required to save', 'warning');
       return;
     }
@@ -106,7 +132,19 @@ function App() {
   const loadSavedParties = () => {
     try {
       const savedParties = JSON.parse(localStorage.getItem('restaurant_parties') || '[]');
-      return savedParties;
+      // Validate and sanitize loaded data
+      if (!Array.isArray(savedParties)) return [];
+      return savedParties.filter(party => 
+        party && typeof party === 'object' && 
+        party.id && party.name && 
+        Array.isArray(party.friends) &&
+        (typeof party.orders === 'object' || !party.orders)
+      ).map(party => ({
+        ...party,
+        name: sanitizeTextInput(party.name || ''),
+        restaurant_name: sanitizeTextInput(party.restaurant_name || ''),
+        friends: (party.friends || []).map(friend => sanitizeTextInput(friend || '')).filter(f => f)
+      }));
     } catch (error) {
       showMessage('Error loading saved parties', 'danger');
       return [];
@@ -132,15 +170,16 @@ function App() {
   };
 
   const addFriend = () => {
-    if (!newFriendName.trim()) {
-      showMessage('Please enter a friend name', 'warning');
+    const sanitizedName = sanitizeTextInput(newFriendName);
+    if (!sanitizedName) {
+      showMessage('Please enter a valid friend name', 'warning');
       return;
     }
-    if (friends.includes(newFriendName.trim())) {
+    if (friends.some(friend => normalizeForComparison(friend) === normalizeForComparison(sanitizedName))) {
       showMessage('Friend already exists', 'warning');
       return;
     }
-    setFriends([...friends, newFriendName.trim()]);
+    setFriends([...friends, sanitizedName]);
     setNewFriendName('');
     showMessage('Friend added successfully!', 'success');
   };
@@ -154,18 +193,19 @@ function App() {
   };
 
   const addCustomMenuItem = () => {
-    if (!newItemName.trim()) {
-      showMessage('Please enter item name', 'warning');
+    const sanitizedName = sanitizeTextInput(newItemName);
+    if (!sanitizedName) {
+      showMessage('Please enter a valid item name', 'warning');
       return;
     }
-    const price = parseFloat(newItemPrice);
-    if (isNaN(price) || price <= 0) {
-      showMessage('Please enter a valid price', 'warning');
+    const price = validatePrice(newItemPrice, true); // Allow zero for custom items
+    if (price === null) {
+      showMessage('Please enter a valid price (0.00 or higher)', 'warning');
       return;
     }
 
     const newItem = {
-      name: newItemName.trim(),
+      name: sanitizedName,
       price: price,
       category: newItemCategory
     };
@@ -185,14 +225,9 @@ function App() {
 
   // Functions for managing custom items on existing restaurants
   const addCustomItemToRestaurant = () => {
-    if (!newItemName.trim()) {
-      showMessage('Please enter an item name', 'warning');
-      return;
-    }
-
-    const price = parseFloat(newItemPrice);
-    if (isNaN(price) || price < 0) {
-      showMessage('Please enter a valid price', 'warning');
+    const sanitizedName = sanitizeTextInput(newItemName);
+    if (!sanitizedName) {
+      showMessage('Please enter a valid item name', 'warning');
       return;
     }
 
@@ -202,20 +237,29 @@ function App() {
       return;
     }
 
+    // For course-based restaurants, allow zero prices for course items
+    const isCourseItem = restaurantData.pricing_model === 'course_based' && 
+                        ['Starter', 'Main', 'Dessert'].includes(newItemCategory);
+    const price = validatePrice(newItemPrice, isCourseItem);
+    if (price === null) {
+      const minPrice = isCourseItem ? '0.00' : '0.01';
+      showMessage(`Please enter a valid price (${minPrice} or higher)`, 'warning');
+      return;
+    }
+
     // Check for duplicate names in both built-in and custom items
     const allMenuItems = getAllMenuItems();
-    if (allMenuItems.some(item => item.name.toLowerCase() === newItemName.trim().toLowerCase())) {
+    if (allMenuItems.some(item => normalizeForComparison(item.name) === normalizeForComparison(sanitizedName))) {
       showMessage('An item with this name already exists', 'warning');
       return;
     }
 
     const newItem = {
       id: Date.now().toString(), // Add unique ID for custom items
-      name: newItemName.trim(),
+      name: sanitizedName,
       price: price,
       category: newItemCategory,
-      is_course_item: restaurantData.pricing_model === 'course_based' && 
-                      ['Starter', 'Main', 'Dessert'].includes(newItemCategory),
+      is_course_item: isCourseItem,
       custom: true // Mark as custom item
     };
 
@@ -229,7 +273,7 @@ function App() {
     setNewItemName('');
     setNewItemPrice('');
     setNewItemCategory('Other');
-    showMessage(`Added ${newItem.name} to ${selectedRestaurant} menu`, 'success');
+    showMessage(`Added ${sanitizedName} to ${selectedRestaurant} menu`, 'success');
   };
 
   const editCustomItem = (item) => {
@@ -241,14 +285,9 @@ function App() {
   };
 
   const saveEditedItem = () => {
-    if (!newItemName.trim()) {
-      showMessage('Please enter an item name', 'warning');
-      return;
-    }
-
-    const price = parseFloat(newItemPrice);
-    if (isNaN(price) || price < 0) {
-      showMessage('Please enter a valid price', 'warning');
+    const sanitizedName = sanitizeTextInput(newItemName);
+    if (!sanitizedName) {
+      showMessage('Please enter a valid item name', 'warning');
       return;
     }
 
@@ -258,10 +297,20 @@ function App() {
       return;
     }
 
+    // For course-based restaurants, allow zero prices for course items
+    const isCourseItem = restaurantData.pricing_model === 'course_based' && 
+                        ['Starter', 'Main', 'Dessert'].includes(newItemCategory);
+    const price = validatePrice(newItemPrice, isCourseItem);
+    if (price === null) {
+      const minPrice = isCourseItem ? '0.00' : '0.01';
+      showMessage(`Please enter a valid price (${minPrice} or higher)`, 'warning');
+      return;
+    }
+
     // Check for duplicate names (excluding the item being edited)
     const allMenuItems = getAllMenuItems();
     if (allMenuItems.some(item => 
-      item.name.toLowerCase() === newItemName.trim().toLowerCase() && 
+      normalizeForComparison(item.name) === normalizeForComparison(sanitizedName) && 
       item.id !== editingItem.id)) {
       showMessage('An item with this name already exists', 'warning');
       return;
@@ -272,11 +321,10 @@ function App() {
       if (item.id === editingItem.id) {
         return {
           ...item,
-          name: newItemName.trim(),
+          name: sanitizedName,
           price: price,
           category: newItemCategory,
-          is_course_item: restaurantData.pricing_model === 'course_based' && 
-                          ['Starter', 'Main', 'Dessert'].includes(newItemCategory)
+          is_course_item: isCourseItem
         };
       }
       return item;
@@ -289,7 +337,7 @@ function App() {
     
     setRestaurantCustomItems(updatedCustomItems);
     cancelEdit();
-    showMessage(`Updated ${newItemName} in ${selectedRestaurant} menu`, 'success');
+    showMessage(`Updated ${sanitizedName} in ${selectedRestaurant} menu`, 'success');
   };
 
   const cancelEdit = () => {
@@ -631,10 +679,10 @@ function App() {
 
   const generateEmailBillSummary = () => {
     const totalCost = calculateTotalCost();
-    const currentRestaurantName = restaurantName || selectedRestaurant;
+    const currentRestaurantName = sanitizeTextInput(restaurantName || selectedRestaurant);
     const currentDate = new Date().toLocaleDateString('da-DK');
     
-    let emailBody = `Restaurant Bill Split - ${partyName || currentRestaurantName}\n`;
+    let emailBody = `Restaurant Bill Split - ${sanitizeTextInput(partyName || currentRestaurantName)}\n`;
     emailBody += `Date: ${currentDate}\n`;
     emailBody += `Restaurant: ${currentRestaurantName}\n\n`;
     
@@ -642,7 +690,7 @@ function App() {
     friends.forEach(friend => {
       const friendTotal = calculateFriendTotal(friend);
       if (friendTotal > 0) {
-        emailBody += `${friend} - ${friendTotal.toFixed(2)} kr\n`;
+        emailBody += `${sanitizeTextInput(friend)} - ${friendTotal.toFixed(2)} kr\n`;
       }
     });
     
@@ -653,7 +701,7 @@ function App() {
 
   const handleEmailBills = () => {
     const emailBody = generateEmailBillSummary();
-    const subject = `Restaurant Bill Split - ${partyName || restaurantName || selectedRestaurant}`;
+    const subject = `Restaurant Bill Split - ${sanitizeTextInput(partyName || restaurantName || selectedRestaurant)}`;
     
     const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`;
     window.open(mailtoUrl);
@@ -712,8 +760,9 @@ function App() {
           type="text"
           className="form-control"
           value={partyName}
-          onChange={(e) => setPartyName(e.target.value)}
+          onChange={(e) => setPartyName(sanitizeTextInput(e.target.value))}
           placeholder="Enter party name"
+          maxLength="100"
         />
       </div>
       
@@ -748,13 +797,14 @@ function App() {
             type="text"
             className="form-control"
             value={restaurantName}
-            onChange={(e) => setRestaurantName(e.target.value)}
+            onChange={(e) => setRestaurantName(sanitizeTextInput(e.target.value))}
             placeholder="Enter restaurant name"
+            maxLength="100"
           />
         </div>
       )}
 
-      {partyName.trim() && (restaurantName.trim() || selectedRestaurant !== 'Custom Restaurant') && (
+      {partyName && (restaurantName || selectedRestaurant !== 'Custom Restaurant') && (
         <button className="btn" onClick={() => setCurrentStep('friends')}>
           Continue to Add Friends
         </button>
@@ -771,8 +821,9 @@ function App() {
             type="text"
             className="form-control"
             value={newFriendName}
-            onChange={(e) => setNewFriendName(e.target.value)}
+            onChange={(e) => setNewFriendName(sanitizeTextInput(e.target.value))}
             placeholder="Enter friend name"
+            maxLength="100"
             onKeyPress={(e) => e.key === 'Enter' && addFriend()}
           />
         </div>
@@ -860,8 +911,9 @@ function App() {
                 type="text"
                 className="form-control"
                 value={newItemName}
-                onChange={(e) => setNewItemName(e.target.value)}
+                onChange={(e) => setNewItemName(sanitizeTextInput(e.target.value))}
                 placeholder="Item name"
+                maxLength="100"
               />
             </div>
             <div className="col">
@@ -869,9 +921,16 @@ function App() {
                 type="number"
                 step="0.01"
                 min="0"
+                max="99999.99"
                 className="form-control"
                 value={newItemPrice}
-                onChange={(e) => setNewItemPrice(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  // Only allow valid number input
+                  if (val === '' || /^\d*\.?\d{0,2}$/.test(val)) {
+                    setNewItemPrice(val);
+                  }
+                }}
                 placeholder="Price"
               />
             </div>
@@ -1001,9 +1060,10 @@ function App() {
                   <label>Add Item:</label>
                   <select
                     onChange={(e) => {
-                      if (e.target.value) {
-                        const selectedItem = menuItems.find(item => item.name === e.target.value);
-                        if (selectedItem) {
+                      const selectedValue = e.target.value;
+                      if (selectedValue) {
+                        const selectedItem = menuItems.find(item => item.name === selectedValue);
+                        if (selectedItem && selectedValue === selectedItem.name) {
                           addItemToFriendOrder(friend, selectedItem);
                         }
                         e.target.value = '';
@@ -1085,9 +1145,10 @@ function App() {
               <label>Add Table Item:</label>
               <select
                 onChange={(e) => {
-                  if (e.target.value) {
-                    const selectedItem = tableItems.find(item => item.name === e.target.value);
-                    if (selectedItem) {
+                  const selectedValue = e.target.value;
+                  if (selectedValue) {
+                    const selectedItem = tableItems.find(item => item.name === selectedValue);
+                    if (selectedItem && selectedValue === selectedItem.name) {
                       addItemToTableOrders(selectedItem);
                     }
                     e.target.value = '';
