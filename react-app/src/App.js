@@ -11,6 +11,7 @@ function App() {
   const [editingItem, setEditingItem] = useState(null); // Item being edited
   const [friends, setFriends] = useState([]);
   const [orders, setOrders] = useState({}); // {friendName: [{id, name, cost, quantity, category}, ...]}
+  const [tableOrders, setTableOrders] = useState([]); // [{id, name, cost, quantity, category}, ...] for table items
   const [newFriendName, setNewFriendName] = useState('');
   const [showAlert, setShowAlert] = useState('');
   const [alertType, setAlertType] = useState('');
@@ -63,6 +64,7 @@ function App() {
       last_updated: new Date().toISOString(),
       friends: friends,
       orders: orders,
+      table_orders: tableOrders,
       total_cost: calculateTotalCost()
     };
 
@@ -102,6 +104,7 @@ function App() {
     setRestaurantCustomItems(partyData.restaurant_custom_items || {});
     setFriends(partyData.friends || []);
     setOrders(partyData.orders || {});
+    setTableOrders(partyData.table_orders || []);
     setCurrentStep('orders');
     showMessage('Party loaded successfully!', 'success');
   };
@@ -306,6 +309,56 @@ function App() {
     }
   };
 
+  // Functions for managing table orders (shared items)
+  const addItemToTableOrders = (menuItem) => {
+    // Check if item already exists in table orders
+    const existingTableItem = tableOrders.find(item => item.name === menuItem.name);
+    
+    if (existingTableItem) {
+      // Increment quantity
+      const updatedTableOrders = tableOrders.map(item => 
+        item.name === menuItem.name 
+          ? { ...item, quantity: item.quantity + 1 }
+          : item
+      );
+      setTableOrders(updatedTableOrders);
+    } else {
+      // Add new table item
+      const tableOrderItem = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2),
+        name: menuItem.name,
+        cost: menuItem.price,
+        quantity: 1,
+        category: menuItem.category,
+        is_course_item: menuItem.is_course_item || false,
+        custom: menuItem.custom || false
+      };
+      setTableOrders([...tableOrders, tableOrderItem]);
+    }
+    
+    showMessage(`Added ${menuItem.name} to table orders`, 'success');
+  };
+
+  const updateTableItemQuantity = (orderItemId, newQuantity) => {
+    if (newQuantity <= 0) {
+      removeTableItem(orderItemId);
+      return;
+    }
+
+    const updatedTableOrders = tableOrders.map(item => 
+      item.id === orderItemId 
+        ? { ...item, quantity: newQuantity }
+        : item
+    );
+    setTableOrders(updatedTableOrders);
+  };
+
+  const removeTableItem = (orderItemId) => {
+    const updatedTableOrders = tableOrders.filter(item => item.id !== orderItemId);
+    setTableOrders(updatedTableOrders);
+    showMessage('Table item removed', 'info');
+  };
+
   const addItemToFriendOrder = (friendName, menuItem) => {
     const newOrders = { ...orders };
     if (!newOrders[friendName]) {
@@ -376,17 +429,29 @@ function App() {
     showMessage('Item removed from order', 'info');
   };
 
+  const calculateTableCostPerFriend = () => {
+    if (friends.length === 0) return 0;
+    const totalTableCost = tableOrders.reduce((total, item) => total + (item.cost * item.quantity), 0);
+    return totalTableCost / friends.length;
+  };
+
   const calculateFriendTotal = (friendName) => {
     const friendOrders = orders[friendName] || [];
     const restaurantData = getSelectedRestaurantData();
     
+    let individualTotal = 0;
+    
     // Check if this is a course-based restaurant
     if (restaurantData && restaurantData.pricing_model === 'course_based') {
-      return calculateCoursePricingForFriend(friendName, restaurantData);
+      individualTotal = calculateCoursePricingForFriend(friendName, restaurantData);
     } else {
       // Regular pricing: sum all item costs
-      return friendOrders.reduce((total, item) => total + (item.cost * item.quantity), 0);
+      individualTotal = friendOrders.reduce((total, item) => total + (item.cost * item.quantity), 0);
     }
+    
+    // Add their share of table costs
+    const tableShare = calculateTableCostPerFriend();
+    return individualTotal + tableShare;
   };
 
   const calculateCoursePricingForFriend = (friendName, restaurantData) => {
@@ -455,6 +520,7 @@ function App() {
       setRestaurantCustomItems({});
       setFriends([]);
       setOrders({});
+      setTableOrders([]);
       generatePartyId();
       setCurrentStep('start');
       showMessage('Party reset successfully', 'info');
@@ -802,6 +868,7 @@ function App() {
                 <option value="Dessert">Dessert</option>
                 <option value="Drink">Drink</option>
                 <option value="Other">Other</option>
+                <option value="Table">Table (Shared)</option>
               </select>
             </div>
             <div className="col">
@@ -874,7 +941,9 @@ function App() {
   };
 
   const renderOrdersSection = () => {
-    const menuItems = getAllMenuItems();
+    const allItems = getAllMenuItems();
+    const menuItems = allItems.filter(item => item.category !== 'Table'); // Filter out Table items for individual orders
+    const tableItems = allItems.filter(item => item.category === 'Table'); // Table items only
     const restaurantData = getSelectedRestaurantData();
     const isCourseBasedRestaurant = restaurantData && restaurantData.pricing_model === 'course_based';
     
@@ -983,6 +1052,87 @@ function App() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Table Orders Section */}
+        {tableItems.length > 0 && (
+          <div style={{marginTop: '30px', marginBottom: '20px'}}>
+            <h3>🍻 Table Orders (Shared Items)</h3>
+            <p style={{color: '#666', fontSize: '14px', marginBottom: '15px'}}>
+              These items will be split equally among all party members.
+            </p>
+            
+            <div style={{marginBottom: '15px'}}>
+              <label>Add Table Item:</label>
+              <select
+                onChange={(e) => {
+                  if (e.target.value) {
+                    const selectedItem = tableItems.find(item => item.name === e.target.value);
+                    if (selectedItem) {
+                      addItemToTableOrders(selectedItem);
+                    }
+                    e.target.value = '';
+                  }
+                }}
+                className="form-control"
+                defaultValue=""
+              >
+                <option value="">Select a table item...</option>
+                {tableItems.map((item, index) => (
+                  <option key={index} value={item.name}>
+                    {item.name} - {item.price.toFixed(2)} kr ({item.category})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {tableOrders.length > 0 && (
+              <div>
+                <h5>Current Table Orders:</h5>
+                <div className="item-list">
+                  {tableOrders.map((orderItem) => (
+                    <div key={orderItem.id} className="item">
+                      <div>
+                        <strong>{orderItem.name}</strong> - {orderItem.cost.toFixed(2)} kr each
+                        <div style={{fontSize: '14px', color: '#666'}}>
+                          {orderItem.category} • Total: {(orderItem.cost * orderItem.quantity).toFixed(2)} kr 
+                          • Split: {((orderItem.cost * orderItem.quantity) / friends.length).toFixed(2)} kr per person
+                        </div>
+                      </div>
+                      <div style={{float: 'right', display: 'flex', alignItems: 'center', gap: '5px'}}>
+                        <div className="quantity-control">
+                          <button 
+                            className="quantity-btn"
+                            onClick={() => updateTableItemQuantity(orderItem.id, orderItem.quantity - 1)}
+                          >
+                            -
+                          </button>
+                          <span className="quantity-display">{orderItem.quantity}</span>
+                          <button 
+                            className="quantity-btn"
+                            onClick={() => updateTableItemQuantity(orderItem.id, orderItem.quantity + 1)}
+                          >
+                            +
+                          </button>
+                        </div>
+                        <button 
+                          className="btn btn-secondary"
+                          onClick={() => removeTableItem(orderItem.id)}
+                          style={{fontSize: '12px', padding: '2px 6px'}}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {tableOrders.length === 0 && (
+              <p style={{color: '#666', fontStyle: 'italic'}}>No table items ordered yet</p>
+            )}
           </div>
         )}
 
@@ -1097,6 +1247,21 @@ function App() {
                   </div>
                 ) : (
                   <p style={{color: '#666', fontStyle: 'italic'}}>No items ordered</p>
+                )}
+                
+                {/* Show table share for each friend */}
+                {tableOrders.length > 0 && (
+                  <div style={{marginTop: '10px'}}>
+                    <strong>Table Items Share: {calculateTableCostPerFriend().toFixed(2)} kr</strong>
+                    <div style={{fontSize: '14px', color: '#666', paddingLeft: '20px'}}>
+                      {tableOrders.map((item) => (
+                        <div key={item.id} style={{marginBottom: '2px'}}>
+                          {item.name} {item.quantity > 1 ? `× ${item.quantity}` : ''} - {((item.cost * item.quantity) / friends.length).toFixed(2)} kr
+                          <span style={{color: '#888'}}> (shared)</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             );
