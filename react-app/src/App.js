@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 function App() {
   const [restaurants, setRestaurants] = useState([]);
@@ -20,11 +20,21 @@ function App() {
   const [newItemPrice, setNewItemPrice] = useState('');
   const [newItemCategory, setNewItemCategory] = useState('Other');
   const [isEditMode, setIsEditMode] = useState(false);
+  const alertTimeoutRef = useRef(null);
 
   useEffect(() => {
     loadRestaurants();
     generatePartyId();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (alertTimeoutRef.current) {
+        clearTimeout(alertTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const loadRestaurants = async () => {
     try {
@@ -37,14 +47,22 @@ function App() {
   };
 
   const generatePartyId = () => {
-    const id = Date.now().toString(36) + Math.random().toString(36).substr(2);
+    const id = Date.now().toString(36) + Math.random().toString(36).substring(2);
     setCurrentPartyId(id);
   };
 
   const showMessage = (message, type = 'info') => {
+    // Clear existing timeout to prevent multiple alerts
+    if (alertTimeoutRef.current) {
+      clearTimeout(alertTimeoutRef.current);
+    }
+    
     setShowAlert(message);
     setAlertType(type);
-    setTimeout(() => setShowAlert(''), 3000);
+    alertTimeoutRef.current = setTimeout(() => {
+      setShowAlert('');
+      alertTimeoutRef.current = null;
+    }, 3000);
   };
 
   const saveCurrentParty = () => {
@@ -325,7 +343,7 @@ function App() {
     } else {
       // Add new table item
       const tableOrderItem = {
-        id: Date.now().toString() + Math.random().toString(36).substr(2),
+        id: Date.now().toString() + Math.random().toString(36).substring(2),
         name: menuItem.name,
         cost: menuItem.price,
         quantity: 1,
@@ -386,7 +404,7 @@ function App() {
     } else {
       // Add new item
       const orderItem = {
-        id: Date.now().toString() + Math.random().toString(36).substr(2),
+        id: Date.now().toString() + Math.random().toString(36).substring(2),
         name: menuItem.name,
         cost: menuItem.price,
         quantity: 1,
@@ -463,7 +481,7 @@ function App() {
     const nonCourseItems = [];
     
     friendOrders.forEach(orderItem => {
-      const menuItem = restaurantData.menu.find(m => m.name === orderItem.name);
+      const menuItem = restaurantData?.menu?.find(m => m.name === orderItem.name);
       if (menuItem && menuItem.is_course_item) {
         // For course items, only count unique courses (ignore quantity > 1 for course items)
         if (!courseItems.some(ci => ci.category === menuItem.category)) {
@@ -535,7 +553,7 @@ function App() {
     const restaurantData = getSelectedRestaurantData();
     if (restaurantData) {
       // Combine built-in restaurant menu with custom additions
-      const builtInItems = restaurantData.menu || [];
+      const builtInItems = restaurantData?.menu || [];
       const customAdditions = restaurantCustomItems[selectedRestaurant] || [];
       return [...builtInItems, ...customAdditions];
     } else if (selectedRestaurant === 'Custom Restaurant') {
@@ -571,7 +589,7 @@ function App() {
     const nonCourseItems = [];
     
     friendOrders.forEach(orderItem => {
-      const menuItem = restaurantData.menu.find(m => m.name === orderItem.name);
+      const menuItem = restaurantData?.menu?.find(m => m.name === orderItem.name);
       if (menuItem && menuItem.is_course_item) {
         if (!courseItems.some(ci => ci.category === menuItem.category)) {
           courseItems.push({
@@ -1097,7 +1115,7 @@ function App() {
                         <strong>{orderItem.name}</strong> - {orderItem.cost.toFixed(2)} kr each
                         <div style={{fontSize: '14px', color: '#666'}}>
                           {orderItem.category} • Total: {(orderItem.cost * orderItem.quantity).toFixed(2)} kr 
-                          • Split: {((orderItem.cost * orderItem.quantity) / friends.length).toFixed(2)} kr per person
+                          • Split: {friends.length > 0 ? ((orderItem.cost * orderItem.quantity) / friends.length).toFixed(2) : '0.00'} kr per person
                         </div>
                       </div>
                       <div style={{float: 'right', display: 'flex', alignItems: 'center', gap: '5px'}}>
@@ -1256,7 +1274,7 @@ function App() {
                     <div style={{fontSize: '14px', color: '#666', paddingLeft: '20px'}}>
                       {tableOrders.map((item) => (
                         <div key={item.id} style={{marginBottom: '2px'}}>
-                          {item.name} {item.quantity > 1 ? `× ${item.quantity}` : ''} - {((item.cost * item.quantity) / friends.length).toFixed(2)} kr
+                          {item.name} {item.quantity > 1 ? `× ${item.quantity}` : ''} - {friends.length > 0 ? ((item.cost * item.quantity) / friends.length).toFixed(2) : '0.00'} kr
                           <span style={{color: '#888'}}> (shared)</span>
                         </div>
                       ))}

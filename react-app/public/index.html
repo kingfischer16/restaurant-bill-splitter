@@ -222,6 +222,27 @@
         .card {
           padding: 15px;
         }
+        
+        /* Ensure minimum 44px touch targets on mobile */
+        .btn {
+          min-height: 44px;
+          min-width: 44px;
+          padding: 12px 20px;
+        }
+        
+        .quantity-btn {
+          width: 44px;
+          height: 44px;
+          font-size: 18px;
+        }
+        
+        /* Make small buttons larger on mobile */
+        .btn[style*="font-size: 12px"] {
+          font-size: 14px !important;
+          padding: 8px 12px !important;
+          min-height: 44px;
+          min-width: 44px;
+        }
       }
     </style>
   </head>
