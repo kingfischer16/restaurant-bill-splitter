@@ -7,6 +7,8 @@ function App() {
   const [selectedRestaurant, setSelectedRestaurant] = useState('Custom Restaurant');
   const [restaurantName, setRestaurantName] = useState('');
   const [customMenuItems, setCustomMenuItems] = useState([]); // For custom restaurants
+  const [restaurantCustomItems, setRestaurantCustomItems] = useState({}); // Custom items per restaurant {restaurantName: [items]}
+  const [editingItem, setEditingItem] = useState(null); // Item being edited
   const [friends, setFriends] = useState([]);
   const [orders, setOrders] = useState({}); // {friendName: [{id, name, cost, quantity, category}, ...]}
   const [newFriendName, setNewFriendName] = useState('');
@@ -16,6 +18,7 @@ function App() {
   const [newItemName, setNewItemName] = useState('');
   const [newItemPrice, setNewItemPrice] = useState('');
   const [newItemCategory, setNewItemCategory] = useState('Other');
+  const [isEditMode, setIsEditMode] = useState(false);
 
   useEffect(() => {
     loadRestaurants();
@@ -24,7 +27,7 @@ function App() {
 
   const loadRestaurants = async () => {
     try {
-      const response = await fetch('./restaurants.json');
+      const response = await fetch('/restaurant-bill-splitter/restaurants.json');
       const data = await response.json();
       setRestaurants(data.restaurants || []);
     } catch (error) {
@@ -55,6 +58,7 @@ function App() {
       restaurant_name: restaurantName,
       selected_restaurant: selectedRestaurant,
       custom_menu_items: customMenuItems,
+      restaurant_custom_items: restaurantCustomItems,
       created: new Date().toISOString(),
       last_updated: new Date().toISOString(),
       friends: friends,
@@ -95,6 +99,7 @@ function App() {
     setRestaurantName(partyData.restaurant_name || '');
     setSelectedRestaurant(partyData.selected_restaurant || 'Custom Restaurant');
     setCustomMenuItems(partyData.custom_menu_items || []);
+    setRestaurantCustomItems(partyData.restaurant_custom_items || {});
     setFriends(partyData.friends || []);
     setOrders(partyData.orders || {});
     setCurrentStep('orders');
@@ -157,6 +162,150 @@ function App() {
     showMessage('Menu item removed', 'info');
   };
 
+  // Functions for managing custom items on existing restaurants
+  const addCustomItemToRestaurant = () => {
+    if (!newItemName.trim()) {
+      showMessage('Please enter an item name', 'warning');
+      return;
+    }
+
+    const price = parseFloat(newItemPrice);
+    if (isNaN(price) || price < 0) {
+      showMessage('Please enter a valid price', 'warning');
+      return;
+    }
+
+    const restaurantData = getSelectedRestaurantData();
+    if (!restaurantData) {
+      showMessage('Please select a valid restaurant', 'warning');
+      return;
+    }
+
+    // Check for duplicate names in both built-in and custom items
+    const allMenuItems = getAllMenuItems();
+    if (allMenuItems.some(item => item.name.toLowerCase() === newItemName.trim().toLowerCase())) {
+      showMessage('An item with this name already exists', 'warning');
+      return;
+    }
+
+    const newItem = {
+      id: Date.now().toString(), // Add unique ID for custom items
+      name: newItemName.trim(),
+      price: price,
+      category: newItemCategory,
+      is_course_item: restaurantData.pricing_model === 'course_based' && 
+                      ['Starter', 'Main', 'Dessert'].includes(newItemCategory),
+      custom: true // Mark as custom item
+    };
+
+    const currentCustomItems = restaurantCustomItems[selectedRestaurant] || [];
+    const updatedCustomItems = {
+      ...restaurantCustomItems,
+      [selectedRestaurant]: [...currentCustomItems, newItem]
+    };
+    
+    setRestaurantCustomItems(updatedCustomItems);
+    setNewItemName('');
+    setNewItemPrice('');
+    setNewItemCategory('Other');
+    showMessage(`Added ${newItem.name} to ${selectedRestaurant} menu`, 'success');
+  };
+
+  const editCustomItem = (item) => {
+    setEditingItem(item);
+    setNewItemName(item.name);
+    setNewItemPrice(item.price.toString());
+    setNewItemCategory(item.category);
+    setIsEditMode(true);
+  };
+
+  const saveEditedItem = () => {
+    if (!newItemName.trim()) {
+      showMessage('Please enter an item name', 'warning');
+      return;
+    }
+
+    const price = parseFloat(newItemPrice);
+    if (isNaN(price) || price < 0) {
+      showMessage('Please enter a valid price', 'warning');
+      return;
+    }
+
+    const restaurantData = getSelectedRestaurantData();
+    if (!restaurantData) {
+      showMessage('Please select a valid restaurant', 'warning');
+      return;
+    }
+
+    // Check for duplicate names (excluding the item being edited)
+    const allMenuItems = getAllMenuItems();
+    if (allMenuItems.some(item => 
+      item.name.toLowerCase() === newItemName.trim().toLowerCase() && 
+      item.id !== editingItem.id)) {
+      showMessage('An item with this name already exists', 'warning');
+      return;
+    }
+
+    const currentCustomItems = restaurantCustomItems[selectedRestaurant] || [];
+    const updatedItems = currentCustomItems.map(item => {
+      if (item.id === editingItem.id) {
+        return {
+          ...item,
+          name: newItemName.trim(),
+          price: price,
+          category: newItemCategory,
+          is_course_item: restaurantData.pricing_model === 'course_based' && 
+                          ['Starter', 'Main', 'Dessert'].includes(newItemCategory)
+        };
+      }
+      return item;
+    });
+
+    const updatedCustomItems = {
+      ...restaurantCustomItems,
+      [selectedRestaurant]: updatedItems
+    };
+    
+    setRestaurantCustomItems(updatedCustomItems);
+    cancelEdit();
+    showMessage(`Updated ${newItemName} in ${selectedRestaurant} menu`, 'success');
+  };
+
+  const cancelEdit = () => {
+    setEditingItem(null);
+    setNewItemName('');
+    setNewItemPrice('');
+    setNewItemCategory('Other');
+    setIsEditMode(false);
+  };
+
+  const removeCustomItemFromRestaurant = (itemId) => {
+    const currentCustomItems = restaurantCustomItems[selectedRestaurant] || [];
+    const itemToRemove = currentCustomItems.find(item => item.id === itemId);
+    
+    if (!itemToRemove) return;
+
+    if (window.confirm(`Are you sure you want to remove "${itemToRemove.name}" from the menu?`)) {
+      const updatedItems = currentCustomItems.filter(item => item.id !== itemId);
+      const updatedCustomItems = {
+        ...restaurantCustomItems,
+        [selectedRestaurant]: updatedItems
+      };
+      
+      setRestaurantCustomItems(updatedCustomItems);
+      showMessage(`Removed ${itemToRemove.name} from menu`, 'info');
+      
+      // Remove the item from any existing orders
+      const updatedOrders = { ...orders };
+      Object.keys(updatedOrders).forEach(friendName => {
+        updatedOrders[friendName] = updatedOrders[friendName].filter(orderItem => 
+          !(orderItem.name === itemToRemove.name && orderItem.custom)
+        );
+      });
+      setOrders(updatedOrders);
+    }
+  };
+
   const addItemToFriendOrder = (friendName, menuItem) => {
     const newOrders = { ...orders };
     if (!newOrders[friendName]) {
@@ -189,7 +338,8 @@ function App() {
         cost: menuItem.price,
         quantity: 1,
         category: menuItem.category,
-        is_course_item: menuItem.is_course_item || false
+        is_course_item: menuItem.is_course_item || false,
+        custom: menuItem.custom || false
       };
       newOrders[friendName].push(orderItem);
     }
@@ -302,6 +452,7 @@ function App() {
       setSelectedRestaurant('Custom Restaurant');
       setRestaurantName('');
       setCustomMenuItems([]);
+      setRestaurantCustomItems({});
       setFriends([]);
       setOrders({});
       generatePartyId();
@@ -317,7 +468,10 @@ function App() {
   const getAllMenuItems = () => {
     const restaurantData = getSelectedRestaurantData();
     if (restaurantData) {
-      return restaurantData.menu;
+      // Combine built-in restaurant menu with custom additions
+      const builtInItems = restaurantData.menu || [];
+      const customAdditions = restaurantCustomItems[selectedRestaurant] || [];
+      return [...builtInItems, ...customAdditions];
     } else if (selectedRestaurant === 'Custom Restaurant') {
       return customMenuItems;
     }
@@ -490,6 +644,8 @@ function App() {
             }
             setCustomMenuItems([]);
             setOrders({});
+            // Clear any editing state when changing restaurants
+            cancelEdit();
           }}
         >
           <option value="Custom Restaurant">Create Custom Restaurant</option>
@@ -565,95 +721,157 @@ function App() {
       )}
 
       {friends.length > 0 && (
-        <button className="btn" onClick={() => {
-          if (selectedRestaurant === 'Custom Restaurant') {
-            setCurrentStep('menu');
-          } else {
-            setCurrentStep('orders');
-          }
-        }}>
-          {selectedRestaurant === 'Custom Restaurant' ? 'Continue to Create Menu' : 'Continue to Orders'}
-        </button>
+        <>
+          <button className="btn" onClick={() => setCurrentStep('menu')}>
+            {selectedRestaurant === 'Custom Restaurant' ? 'Continue to Create Menu' : 'Continue to Manage Menu'}
+          </button>
+          {selectedRestaurant !== 'Custom Restaurant' && (
+            <button className="btn btn-secondary" onClick={() => setCurrentStep('orders')}>
+              Skip to Orders
+            </button>
+          )}
+        </>
       )}
     </div>
   );
 
-  const renderMenuSection = () => (
-    <div className="card">
-      <h2>📋 Create Menu for {restaurantName}</h2>
-      
-      <div className="form-group">
-        <h3>Add Menu Item</h3>
-        <div className="row">
-          <div className="col">
-            <input
-              type="text"
-              className="form-control"
-              value={newItemName}
-              onChange={(e) => setNewItemName(e.target.value)}
-              placeholder="Item name"
-            />
-          </div>
-          <div className="col">
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              className="form-control"
-              value={newItemPrice}
-              onChange={(e) => setNewItemPrice(e.target.value)}
-              placeholder="Price"
-            />
-          </div>
-          <div className="col">
-            <select
-              value={newItemCategory}
-              onChange={(e) => setNewItemCategory(e.target.value)}
-              className="form-control"
-            >
-              <option value="Starter">Starter</option>
-              <option value="Main">Main</option>
-              <option value="Dessert">Dessert</option>
-              <option value="Drink">Drink</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
-          <div className="col">
-            <button className="btn" onClick={addCustomMenuItem}>Add Item</button>
-          </div>
-        </div>
-      </div>
-
-      {customMenuItems.length > 0 && (
-        <div>
-          <h3>Menu Items ({customMenuItems.length})</h3>
-          <div className="item-list">
-            {customMenuItems.map((item, index) => (
-              <div key={index} className="item">
-                <div>
-                  <strong>{item.name}</strong> - {item.price.toFixed(2)} kr
-                  <div style={{fontSize: '14px', color: '#666'}}>{item.category}</div>
+  const renderMenuSection = () => {
+    const restaurantData = getSelectedRestaurantData();
+    const isCustomRestaurant = selectedRestaurant === 'Custom Restaurant';
+    const builtInItems = restaurantData ? restaurantData.menu || [] : [];
+    const customItems = isCustomRestaurant ? customMenuItems : (restaurantCustomItems[selectedRestaurant] || []);
+    const allMenuItems = isCustomRestaurant ? customItems : [...builtInItems, ...customItems];
+    
+    return (
+      <div className="card">
+        <h2>📋 {isCustomRestaurant ? 'Create Menu for' : 'Manage Menu for'} {restaurantName}</h2>
+        
+        {!isCustomRestaurant && builtInItems.length > 0 && (
+          <div style={{marginBottom: '20px'}}>
+            <h3>Built-in Menu Items ({builtInItems.length})</h3>
+            <div className="item-list">
+              {builtInItems.map((item, index) => (
+                <div key={`builtin-${index}`} className="item">
+                  <div>
+                    <strong>{item.name}</strong> - {item.price.toFixed(2)} kr
+                    <div style={{fontSize: '14px', color: '#666'}}>
+                      {item.category}
+                      {item.is_course_item && ' (Course Item)'}
+                    </div>
+                  </div>
+                  <div style={{float: 'right', fontSize: '12px', color: '#888', padding: '5px 8px'}}>
+                    Built-in
+                  </div>
                 </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        <div className="form-group">
+          <h3>{isEditMode ? 'Edit Menu Item' : `Add ${isCustomRestaurant ? '' : 'Custom'} Menu Item`}</h3>
+          <div className="row">
+            <div className="col">
+              <input
+                type="text"
+                className="form-control"
+                value={newItemName}
+                onChange={(e) => setNewItemName(e.target.value)}
+                placeholder="Item name"
+              />
+            </div>
+            <div className="col">
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className="form-control"
+                value={newItemPrice}
+                onChange={(e) => setNewItemPrice(e.target.value)}
+                placeholder="Price"
+              />
+            </div>
+            <div className="col">
+              <select
+                value={newItemCategory}
+                onChange={(e) => setNewItemCategory(e.target.value)}
+                className="form-control"
+              >
+                <option value="Starter">Starter</option>
+                <option value="Main">Main</option>
+                <option value="Dessert">Dessert</option>
+                <option value="Drink">Drink</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div className="col">
+              {isEditMode ? (
+                <>
+                  <button className="btn btn-success" onClick={saveEditedItem} style={{marginRight: '5px'}}>
+                    Save
+                  </button>
+                  <button className="btn btn-secondary" onClick={cancelEdit}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
                 <button 
-                  className="btn btn-secondary"
-                  onClick={() => removeCustomMenuItem(index)}
-                  style={{float: 'right', fontSize: '12px', padding: '5px 8px'}}
+                  className="btn" 
+                  onClick={isCustomRestaurant ? addCustomMenuItem : addCustomItemToRestaurant}
                 >
-                  Remove
+                  Add Item
                 </button>
-              </div>
-            ))}
+              )}
+            </div>
           </div>
         </div>
-      )}
 
-      {customMenuItems.length > 0 && (
-        <button className="btn" onClick={() => setCurrentStep('orders')}>
-          Continue to Orders
-        </button>
-      )}
-    </div>
-  );
+        {customItems.length > 0 && (
+          <div>
+            <h3>{isCustomRestaurant ? 'Menu Items' : 'Custom Menu Items'} ({customItems.length})</h3>
+            <div className="item-list">
+              {customItems.map((item, index) => (
+                <div key={isCustomRestaurant ? `custom-${index}` : `restaurant-custom-${item.id}`} className="item">
+                  <div>
+                    <strong>{item.name}</strong> - {item.price.toFixed(2)} kr
+                    <div style={{fontSize: '14px', color: '#666'}}>
+                      {item.category}
+                      {item.is_course_item && ' (Course Item)'}
+                      {!isCustomRestaurant && ' (Custom)'}
+                    </div>
+                  </div>
+                  <div style={{float: 'right'}}>
+                    {!isCustomRestaurant && (
+                      <button 
+                        className="btn btn-primary"
+                        onClick={() => editCustomItem(item)}
+                        style={{fontSize: '12px', padding: '2px 6px', marginRight: '5px'}}
+                      >
+                        Edit
+                      </button>
+                    )}
+                    <button 
+                      className="btn btn-secondary"
+                      onClick={() => isCustomRestaurant ? removeCustomMenuItem(index) : removeCustomItemFromRestaurant(item.id)}
+                      style={{fontSize: '12px', padding: '2px 6px'}}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {allMenuItems.length > 0 && (
+          <button className="btn" onClick={() => setCurrentStep('orders')}>
+            Continue to Orders
+          </button>
+        )}
+      </div>
+    );
+  };
 
   const renderOrdersSection = () => {
     const menuItems = getAllMenuItems();
@@ -839,14 +1057,14 @@ function App() {
                         {coursePricing.courseCount > 0 && (
                           <div style={{marginBottom: '10px'}}>
                             <strong>Course Menu ({coursePricing.courseCount} course{coursePricing.courseCount > 1 ? 's' : ''}): {coursePricing.basePrice.toFixed(2)} kr</strong>
-                            <ul>
+                            <div>
                               {coursePricing.courseItems.map((item, index) => (
-                                <li key={index}>
+                                <div key={index} style={{paddingLeft: '20px', marginBottom: '5px'}}>
                                   {item.name} ({item.category})
                                   {item.surcharge > 0 && <span> + {item.surcharge.toFixed(2)} kr surcharge</span>}
-                                </li>
+                                </div>
                               ))}
-                            </ul>
+                            </div>
                             {coursePricing.surcharges > 0 && (
                               <div><strong>Total surcharges: {coursePricing.surcharges.toFixed(2)} kr</strong></div>
                             )}
@@ -855,26 +1073,26 @@ function App() {
                         {coursePricing.nonCourseItems.length > 0 && (
                           <div>
                             <strong>Additional Items:</strong>
-                            <ul>
+                            <div>
                               {coursePricing.nonCourseItems.map((item, index) => (
-                                <li key={index}>
+                                <div key={index} style={{paddingLeft: '20px', marginBottom: '5px'}}>
                                   {item.name} {item.quantity > 1 ? `× ${item.quantity}` : ''} - {(item.cost * item.quantity).toFixed(2)} kr
                                   {item.quantity > 1 && <span style={{color: '#666'}}> ({item.cost.toFixed(2)} kr each)</span>}
-                                </li>
+                                </div>
                               ))}
-                            </ul>
+                            </div>
                           </div>
                         )}
                       </div>
                     ) : (
-                      <ul>
+                      <div>
                         {friendItems.map((item) => (
-                          <li key={item.id}>
+                          <div key={item.id} style={{paddingLeft: '20px', marginBottom: '5px'}}>
                             {item.name} {item.quantity > 1 ? `× ${item.quantity}` : ''} - {(item.cost * item.quantity).toFixed(2)} kr
                             {item.quantity > 1 && <span style={{color: '#666'}}> ({item.cost.toFixed(2)} kr each)</span>}
-                          </li>
+                          </div>
                         ))}
-                      </ul>
+                      </div>
                     )}
                   </div>
                 ) : (
@@ -903,9 +1121,7 @@ function App() {
           <button className="btn" onClick={() => setCurrentStep('start')}>Home</button>
           {partyName && <button className="btn" onClick={() => setCurrentStep('party')}>Party Setup</button>}
           {friends.length > 0 && <button className="btn" onClick={() => setCurrentStep('friends')}>Friends</button>}
-          {selectedRestaurant === 'Custom Restaurant' && customMenuItems.length > 0 && (
-            <button className="btn" onClick={() => setCurrentStep('menu')}>Menu</button>
-          )}
+          <button className="btn" onClick={() => setCurrentStep('menu')}>Menu</button>
           {((selectedRestaurant !== 'Custom Restaurant') || customMenuItems.length > 0) && friends.length > 0 && (
             <button className="btn" onClick={() => setCurrentStep('orders')}>Orders</button>
           )}
