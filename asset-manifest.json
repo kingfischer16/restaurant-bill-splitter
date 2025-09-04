@@ -1,10 +1,10 @@
 {
   "files": {
-    "main.js": "/restaurant-bill-splitter/static/js/main.0930c965.js",
+    "main.js": "/restaurant-bill-splitter/static/js/main.a4cdcbf3.js",
     "index.html": "/restaurant-bill-splitter/index.html",
-    "main.0930c965.js.map": "/restaurant-bill-splitter/static/js/main.0930c965.js.map"
+    "main.a4cdcbf3.js.map": "/restaurant-bill-splitter/static/js/main.a4cdcbf3.js.map"
   },
   "entrypoints": [
-    "static/js/main.0930c965.js"
+    "static/js/main.a4cdcbf3.js"
   ]
 }
