@@ -23,7 +23,7 @@
           "is_course_item": true
         },
         {
-          "name": "Stegt Flaesk",
+          "name": "Stegt Flaesk AD LIBITUM",
           "category": "Main",
           "price": 0.00,
           "is_course_item": true
@@ -61,7 +61,7 @@
         {
           "name": "Rainbow Ice Cream",
           "category": "Dessert",
-          "price": 25.00,
+          "price": 30.00,
           "is_course_item": true
         },
         {
@@ -74,7 +74,7 @@
           "name": "Irish Coffee (Drink)",
           "category": "Drink",
           "price": 90.00,
-          "is_course_item": true
+          "is_course_item": false
         },
         {
           "name": "Normal Beer (glass)",
@@ -89,9 +89,21 @@
           "is_course_item": false
         },
         {
+          "name": "Beer bong",
+          "category": "Drink",
+          "price": 125.00,
+          "is_course_item": false
+        },
+        {
           "name": "Sjus",
           "category": "Drink",
           "price": 90.00,
+          "is_course_item": false
+        },
+        {
+          "name": "Soda",
+          "category": "Drink",
+          "price": 40.00,
           "is_course_item": false
         },
         {
@@ -113,6 +125,12 @@
           "is_course_item": false
         },
         {
+          "name": "Haanddunse",
+          "category": "Other",
+          "price": 50.00,
+          "is_course_item": false
+        },
+        {
           "name": "Flaesktini",
           "category": "Other",
           "price": 100.00,
@@ -122,6 +140,18 @@
           "name": "Baerii Caviar (10g)",
           "category": "Other",
           "price": 125.00,
+          "is_course_item": false
+        },
+        {
+          "name": "Jug of Beer",
+          "category": "Table",
+          "price": 140.00,
+          "is_course_item": false
+        },
+        {
+          "name": "Tower of Beer (3L)",
+          "category": "Table",
+          "price": 500.00,
           "is_course_item": false
         }
       ]

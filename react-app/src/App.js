@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 function App() {
   const [restaurants, setRestaurants] = useState([]);
@@ -7,8 +7,11 @@ function App() {
   const [selectedRestaurant, setSelectedRestaurant] = useState('Custom Restaurant');
   const [restaurantName, setRestaurantName] = useState('');
   const [customMenuItems, setCustomMenuItems] = useState([]); // For custom restaurants
+  const [restaurantCustomItems, setRestaurantCustomItems] = useState({}); // Custom items per restaurant {restaurantName: [items]}
+  const [editingItem, setEditingItem] = useState(null); // Item being edited
   const [friends, setFriends] = useState([]);
   const [orders, setOrders] = useState({}); // {friendName: [{id, name, cost, quantity, category}, ...]}
+  const [tableOrders, setTableOrders] = useState([]); // [{id, name, cost, quantity, category}, ...] for table items
   const [newFriendName, setNewFriendName] = useState('');
   const [showAlert, setShowAlert] = useState('');
   const [alertType, setAlertType] = useState('');
@@ -16,15 +19,26 @@ function App() {
   const [newItemName, setNewItemName] = useState('');
   const [newItemPrice, setNewItemPrice] = useState('');
   const [newItemCategory, setNewItemCategory] = useState('Other');
+  const [isEditMode, setIsEditMode] = useState(false);
+  const alertTimeoutRef = useRef(null);
 
   useEffect(() => {
     loadRestaurants();
     generatePartyId();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (alertTimeoutRef.current) {
+        clearTimeout(alertTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const loadRestaurants = async () => {
     try {
-      const response = await fetch('./restaurants.json');
+      const response = await fetch('/restaurant-bill-splitter/restaurants.json');
       const data = await response.json();
       setRestaurants(data.restaurants || []);
     } catch (error) {
@@ -33,18 +47,52 @@ function App() {
   };
 
   const generatePartyId = () => {
-    const id = Date.now().toString(36) + Math.random().toString(36).substr(2);
+    const id = Date.now().toString(36) + Math.random().toString(36).substring(2);
     setCurrentPartyId(id);
   };
 
+  // Input validation utilities
+  const sanitizeTextInput = (input) => {
+    if (typeof input !== 'string') return '';
+    // Normalize Unicode, remove control characters, limit length, trim whitespace
+    // eslint-disable-next-line no-control-regex
+    const normalized = input.normalize('NFC').replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+    return normalized.substring(0, 100).trim();
+  };
+
+  const normalizeForComparison = (str) => {
+    if (typeof str !== 'string') return '';
+    return sanitizeTextInput(str).toLowerCase().normalize('NFC');
+  };
+
+  const validatePrice = (priceString, allowZero = false) => {
+    if (typeof priceString !== 'string' && typeof priceString !== 'number') return null;
+    const price = parseFloat(priceString);
+    if (isNaN(price) || !isFinite(price)) return null;
+    if (price < 0) return null;
+    if (!allowZero && price === 0) return null;
+    // Limit to reasonable price range (0-99999.99)
+    if (price > 99999.99) return null;
+    return Math.round(price * 100) / 100; // Round to 2 decimal places
+  };
+
   const showMessage = (message, type = 'info') => {
+    // Clear existing timeout to prevent multiple alerts
+    if (alertTimeoutRef.current) {
+      clearTimeout(alertTimeoutRef.current);
+    }
+    
     setShowAlert(message);
     setAlertType(type);
-    setTimeout(() => setShowAlert(''), 3000);
+    alertTimeoutRef.current = setTimeout(() => {
+      setShowAlert('');
+      alertTimeoutRef.current = null;
+    }, 3000);
   };
 
   const saveCurrentParty = () => {
-    if (!currentPartyId || !partyName.trim()) {
+    const sanitizedPartyName = sanitizeTextInput(partyName);
+    if (!currentPartyId || !sanitizedPartyName) {
       showMessage('Party name is required to save', 'warning');
       return;
     }
@@ -55,10 +103,12 @@ function App() {
       restaurant_name: restaurantName,
       selected_restaurant: selectedRestaurant,
       custom_menu_items: customMenuItems,
+      restaurant_custom_items: restaurantCustomItems,
       created: new Date().toISOString(),
       last_updated: new Date().toISOString(),
       friends: friends,
       orders: orders,
+      table_orders: tableOrders,
       total_cost: calculateTotalCost()
     };
 
@@ -82,7 +132,19 @@ function App() {
   const loadSavedParties = () => {
     try {
       const savedParties = JSON.parse(localStorage.getItem('restaurant_parties') || '[]');
-      return savedParties;
+      // Validate and sanitize loaded data
+      if (!Array.isArray(savedParties)) return [];
+      return savedParties.filter(party => 
+        party && typeof party === 'object' && 
+        party.id && party.name && 
+        Array.isArray(party.friends) &&
+        (typeof party.orders === 'object' || !party.orders)
+      ).map(party => ({
+        ...party,
+        name: sanitizeTextInput(party.name || ''),
+        restaurant_name: sanitizeTextInput(party.restaurant_name || ''),
+        friends: (party.friends || []).map(friend => sanitizeTextInput(friend || '')).filter(f => f)
+      }));
     } catch (error) {
       showMessage('Error loading saved parties', 'danger');
       return [];
@@ -95,8 +157,10 @@ function App() {
     setRestaurantName(partyData.restaurant_name || '');
     setSelectedRestaurant(partyData.selected_restaurant || 'Custom Restaurant');
     setCustomMenuItems(partyData.custom_menu_items || []);
+    setRestaurantCustomItems(partyData.restaurant_custom_items || {});
     setFriends(partyData.friends || []);
     setOrders(partyData.orders || {});
+    setTableOrders(partyData.table_orders || []);
     setCurrentStep('orders');
     showMessage('Party loaded successfully!', 'success');
   };
@@ -106,15 +170,16 @@ function App() {
   };
 
   const addFriend = () => {
-    if (!newFriendName.trim()) {
-      showMessage('Please enter a friend name', 'warning');
+    const sanitizedName = sanitizeTextInput(newFriendName);
+    if (!sanitizedName) {
+      showMessage('Please enter a valid friend name', 'warning');
       return;
     }
-    if (friends.includes(newFriendName.trim())) {
+    if (friends.some(friend => normalizeForComparison(friend) === normalizeForComparison(sanitizedName))) {
       showMessage('Friend already exists', 'warning');
       return;
     }
-    setFriends([...friends, newFriendName.trim()]);
+    setFriends([...friends, sanitizedName]);
     setNewFriendName('');
     showMessage('Friend added successfully!', 'success');
   };
@@ -128,18 +193,19 @@ function App() {
   };
 
   const addCustomMenuItem = () => {
-    if (!newItemName.trim()) {
-      showMessage('Please enter item name', 'warning');
+    const sanitizedName = sanitizeTextInput(newItemName);
+    if (!sanitizedName) {
+      showMessage('Please enter a valid item name', 'warning');
       return;
     }
-    const price = parseFloat(newItemPrice);
-    if (isNaN(price) || price <= 0) {
-      showMessage('Please enter a valid price', 'warning');
+    const price = validatePrice(newItemPrice, true); // Allow zero for custom items
+    if (price === null) {
+      showMessage('Please enter a valid price (0.00 or higher)', 'warning');
       return;
     }
 
     const newItem = {
-      name: newItemName.trim(),
+      name: sanitizedName,
       price: price,
       category: newItemCategory
     };
@@ -155,6 +221,208 @@ function App() {
     const newItems = customMenuItems.filter((_, index) => index !== itemIndex);
     setCustomMenuItems(newItems);
     showMessage('Menu item removed', 'info');
+  };
+
+  // Functions for managing custom items on existing restaurants
+  const addCustomItemToRestaurant = () => {
+    const sanitizedName = sanitizeTextInput(newItemName);
+    if (!sanitizedName) {
+      showMessage('Please enter a valid item name', 'warning');
+      return;
+    }
+
+    const restaurantData = getSelectedRestaurantData();
+    if (!restaurantData) {
+      showMessage('Please select a valid restaurant', 'warning');
+      return;
+    }
+
+    // For course-based restaurants, allow zero prices for course items
+    const isCourseItem = restaurantData.pricing_model === 'course_based' && 
+                        ['Starter', 'Main', 'Dessert'].includes(newItemCategory);
+    const price = validatePrice(newItemPrice, isCourseItem);
+    if (price === null) {
+      const minPrice = isCourseItem ? '0.00' : '0.01';
+      showMessage(`Please enter a valid price (${minPrice} or higher)`, 'warning');
+      return;
+    }
+
+    // Check for duplicate names in both built-in and custom items
+    const allMenuItems = getAllMenuItems();
+    if (allMenuItems.some(item => normalizeForComparison(item.name) === normalizeForComparison(sanitizedName))) {
+      showMessage('An item with this name already exists', 'warning');
+      return;
+    }
+
+    const newItem = {
+      id: Date.now().toString(), // Add unique ID for custom items
+      name: sanitizedName,
+      price: price,
+      category: newItemCategory,
+      is_course_item: isCourseItem,
+      custom: true // Mark as custom item
+    };
+
+    const currentCustomItems = restaurantCustomItems[selectedRestaurant] || [];
+    const updatedCustomItems = {
+      ...restaurantCustomItems,
+      [selectedRestaurant]: [...currentCustomItems, newItem]
+    };
+    
+    setRestaurantCustomItems(updatedCustomItems);
+    setNewItemName('');
+    setNewItemPrice('');
+    setNewItemCategory('Other');
+    showMessage(`Added ${sanitizedName} to ${selectedRestaurant} menu`, 'success');
+  };
+
+  const editCustomItem = (item) => {
+    setEditingItem(item);
+    setNewItemName(item.name);
+    setNewItemPrice(item.price.toString());
+    setNewItemCategory(item.category);
+    setIsEditMode(true);
+  };
+
+  const saveEditedItem = () => {
+    const sanitizedName = sanitizeTextInput(newItemName);
+    if (!sanitizedName) {
+      showMessage('Please enter a valid item name', 'warning');
+      return;
+    }
+
+    const restaurantData = getSelectedRestaurantData();
+    if (!restaurantData) {
+      showMessage('Please select a valid restaurant', 'warning');
+      return;
+    }
+
+    // For course-based restaurants, allow zero prices for course items
+    const isCourseItem = restaurantData.pricing_model === 'course_based' && 
+                        ['Starter', 'Main', 'Dessert'].includes(newItemCategory);
+    const price = validatePrice(newItemPrice, isCourseItem);
+    if (price === null) {
+      const minPrice = isCourseItem ? '0.00' : '0.01';
+      showMessage(`Please enter a valid price (${minPrice} or higher)`, 'warning');
+      return;
+    }
+
+    // Check for duplicate names (excluding the item being edited)
+    const allMenuItems = getAllMenuItems();
+    if (allMenuItems.some(item => 
+      normalizeForComparison(item.name) === normalizeForComparison(sanitizedName) && 
+      item.id !== editingItem.id)) {
+      showMessage('An item with this name already exists', 'warning');
+      return;
+    }
+
+    const currentCustomItems = restaurantCustomItems[selectedRestaurant] || [];
+    const updatedItems = currentCustomItems.map(item => {
+      if (item.id === editingItem.id) {
+        return {
+          ...item,
+          name: sanitizedName,
+          price: price,
+          category: newItemCategory,
+          is_course_item: isCourseItem
+        };
+      }
+      return item;
+    });
+
+    const updatedCustomItems = {
+      ...restaurantCustomItems,
+      [selectedRestaurant]: updatedItems
+    };
+    
+    setRestaurantCustomItems(updatedCustomItems);
+    cancelEdit();
+    showMessage(`Updated ${sanitizedName} in ${selectedRestaurant} menu`, 'success');
+  };
+
+  const cancelEdit = () => {
+    setEditingItem(null);
+    setNewItemName('');
+    setNewItemPrice('');
+    setNewItemCategory('Other');
+    setIsEditMode(false);
+  };
+
+  const removeCustomItemFromRestaurant = (itemId) => {
+    const currentCustomItems = restaurantCustomItems[selectedRestaurant] || [];
+    const itemToRemove = currentCustomItems.find(item => item.id === itemId);
+    
+    if (!itemToRemove) return;
+
+    if (window.confirm(`Are you sure you want to remove "${itemToRemove.name}" from the menu?`)) {
+      const updatedItems = currentCustomItems.filter(item => item.id !== itemId);
+      const updatedCustomItems = {
+        ...restaurantCustomItems,
+        [selectedRestaurant]: updatedItems
+      };
+      
+      setRestaurantCustomItems(updatedCustomItems);
+      showMessage(`Removed ${itemToRemove.name} from menu`, 'info');
+      
+      // Remove the item from any existing orders
+      const updatedOrders = { ...orders };
+      Object.keys(updatedOrders).forEach(friendName => {
+        updatedOrders[friendName] = updatedOrders[friendName].filter(orderItem => 
+          !(orderItem.name === itemToRemove.name && orderItem.custom)
+        );
+      });
+      setOrders(updatedOrders);
+    }
+  };
+
+  // Functions for managing table orders (shared items)
+  const addItemToTableOrders = (menuItem) => {
+    // Check if item already exists in table orders
+    const existingTableItem = tableOrders.find(item => item.name === menuItem.name);
+    
+    if (existingTableItem) {
+      // Increment quantity
+      const updatedTableOrders = tableOrders.map(item => 
+        item.name === menuItem.name 
+          ? { ...item, quantity: item.quantity + 1 }
+          : item
+      );
+      setTableOrders(updatedTableOrders);
+    } else {
+      // Add new table item
+      const tableOrderItem = {
+        id: Date.now().toString() + Math.random().toString(36).substring(2),
+        name: menuItem.name,
+        cost: menuItem.price,
+        quantity: 1,
+        category: menuItem.category,
+        is_course_item: menuItem.is_course_item || false,
+        custom: menuItem.custom || false
+      };
+      setTableOrders([...tableOrders, tableOrderItem]);
+    }
+    
+    showMessage(`Added ${menuItem.name} to table orders`, 'success');
+  };
+
+  const updateTableItemQuantity = (orderItemId, newQuantity) => {
+    if (newQuantity <= 0) {
+      removeTableItem(orderItemId);
+      return;
+    }
+
+    const updatedTableOrders = tableOrders.map(item => 
+      item.id === orderItemId 
+        ? { ...item, quantity: newQuantity }
+        : item
+    );
+    setTableOrders(updatedTableOrders);
+  };
+
+  const removeTableItem = (orderItemId) => {
+    const updatedTableOrders = tableOrders.filter(item => item.id !== orderItemId);
+    setTableOrders(updatedTableOrders);
+    showMessage('Table item removed', 'info');
   };
 
   const addItemToFriendOrder = (friendName, menuItem) => {
@@ -184,12 +452,13 @@ function App() {
     } else {
       // Add new item
       const orderItem = {
-        id: Date.now().toString() + Math.random().toString(36).substr(2),
+        id: Date.now().toString() + Math.random().toString(36).substring(2),
         name: menuItem.name,
         cost: menuItem.price,
         quantity: 1,
         category: menuItem.category,
-        is_course_item: menuItem.is_course_item || false
+        is_course_item: menuItem.is_course_item || false,
+        custom: menuItem.custom || false
       };
       newOrders[friendName].push(orderItem);
     }
@@ -226,17 +495,29 @@ function App() {
     showMessage('Item removed from order', 'info');
   };
 
+  const calculateTableCostPerFriend = () => {
+    if (friends.length === 0) return 0;
+    const totalTableCost = tableOrders.reduce((total, item) => total + (item.cost * item.quantity), 0);
+    return totalTableCost / friends.length;
+  };
+
   const calculateFriendTotal = (friendName) => {
     const friendOrders = orders[friendName] || [];
     const restaurantData = getSelectedRestaurantData();
     
+    let individualTotal = 0;
+    
     // Check if this is a course-based restaurant
     if (restaurantData && restaurantData.pricing_model === 'course_based') {
-      return calculateCoursePricingForFriend(friendName, restaurantData);
+      individualTotal = calculateCoursePricingForFriend(friendName, restaurantData);
     } else {
       // Regular pricing: sum all item costs
-      return friendOrders.reduce((total, item) => total + (item.cost * item.quantity), 0);
+      individualTotal = friendOrders.reduce((total, item) => total + (item.cost * item.quantity), 0);
     }
+    
+    // Add their share of table costs
+    const tableShare = calculateTableCostPerFriend();
+    return individualTotal + tableShare;
   };
 
   const calculateCoursePricingForFriend = (friendName, restaurantData) => {
@@ -248,7 +529,7 @@ function App() {
     const nonCourseItems = [];
     
     friendOrders.forEach(orderItem => {
-      const menuItem = restaurantData.menu.find(m => m.name === orderItem.name);
+      const menuItem = restaurantData?.menu?.find(m => m.name === orderItem.name);
       if (menuItem && menuItem.is_course_item) {
         // For course items, only count unique courses (ignore quantity > 1 for course items)
         if (!courseItems.some(ci => ci.category === menuItem.category)) {
@@ -302,8 +583,10 @@ function App() {
       setSelectedRestaurant('Custom Restaurant');
       setRestaurantName('');
       setCustomMenuItems([]);
+      setRestaurantCustomItems({});
       setFriends([]);
       setOrders({});
+      setTableOrders([]);
       generatePartyId();
       setCurrentStep('start');
       showMessage('Party reset successfully', 'info');
@@ -317,7 +600,10 @@ function App() {
   const getAllMenuItems = () => {
     const restaurantData = getSelectedRestaurantData();
     if (restaurantData) {
-      return restaurantData.menu;
+      // Combine built-in restaurant menu with custom additions
+      const builtInItems = restaurantData?.menu || [];
+      const customAdditions = restaurantCustomItems[selectedRestaurant] || [];
+      return [...builtInItems, ...customAdditions];
     } else if (selectedRestaurant === 'Custom Restaurant') {
       return customMenuItems;
     }
@@ -351,7 +637,7 @@ function App() {
     const nonCourseItems = [];
     
     friendOrders.forEach(orderItem => {
-      const menuItem = restaurantData.menu.find(m => m.name === orderItem.name);
+      const menuItem = restaurantData?.menu?.find(m => m.name === orderItem.name);
       if (menuItem && menuItem.is_course_item) {
         if (!courseItems.some(ci => ci.category === menuItem.category)) {
           courseItems.push({
@@ -393,10 +679,10 @@ function App() {
 
   const generateEmailBillSummary = () => {
     const totalCost = calculateTotalCost();
-    const currentRestaurantName = restaurantName || selectedRestaurant;
+    const currentRestaurantName = sanitizeTextInput(restaurantName || selectedRestaurant);
     const currentDate = new Date().toLocaleDateString('da-DK');
     
-    let emailBody = `Restaurant Bill Split - ${partyName || currentRestaurantName}\n`;
+    let emailBody = `Restaurant Bill Split - ${sanitizeTextInput(partyName || currentRestaurantName)}\n`;
     emailBody += `Date: ${currentDate}\n`;
     emailBody += `Restaurant: ${currentRestaurantName}\n\n`;
     
@@ -404,7 +690,7 @@ function App() {
     friends.forEach(friend => {
       const friendTotal = calculateFriendTotal(friend);
       if (friendTotal > 0) {
-        emailBody += `${friend} - ${friendTotal.toFixed(2)} kr\n`;
+        emailBody += `${sanitizeTextInput(friend)} - ${friendTotal.toFixed(2)} kr\n`;
       }
     });
     
@@ -415,7 +701,7 @@ function App() {
 
   const handleEmailBills = () => {
     const emailBody = generateEmailBillSummary();
-    const subject = `Restaurant Bill Split - ${partyName || restaurantName || selectedRestaurant}`;
+    const subject = `Restaurant Bill Split - ${sanitizeTextInput(partyName || restaurantName || selectedRestaurant)}`;
     
     const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`;
     window.open(mailtoUrl);
@@ -474,8 +760,9 @@ function App() {
           type="text"
           className="form-control"
           value={partyName}
-          onChange={(e) => setPartyName(e.target.value)}
+          onChange={(e) => setPartyName(sanitizeTextInput(e.target.value))}
           placeholder="Enter party name"
+          maxLength="100"
         />
       </div>
       
@@ -490,6 +777,8 @@ function App() {
             }
             setCustomMenuItems([]);
             setOrders({});
+            // Clear any editing state when changing restaurants
+            cancelEdit();
           }}
         >
           <option value="Custom Restaurant">Create Custom Restaurant</option>
@@ -508,13 +797,14 @@ function App() {
             type="text"
             className="form-control"
             value={restaurantName}
-            onChange={(e) => setRestaurantName(e.target.value)}
+            onChange={(e) => setRestaurantName(sanitizeTextInput(e.target.value))}
             placeholder="Enter restaurant name"
+            maxLength="100"
           />
         </div>
       )}
 
-      {partyName.trim() && (restaurantName.trim() || selectedRestaurant !== 'Custom Restaurant') && (
+      {partyName && (restaurantName || selectedRestaurant !== 'Custom Restaurant') && (
         <button className="btn" onClick={() => setCurrentStep('friends')}>
           Continue to Add Friends
         </button>
@@ -531,8 +821,9 @@ function App() {
             type="text"
             className="form-control"
             value={newFriendName}
-            onChange={(e) => setNewFriendName(e.target.value)}
+            onChange={(e) => setNewFriendName(sanitizeTextInput(e.target.value))}
             placeholder="Enter friend name"
+            maxLength="100"
             onKeyPress={(e) => e.key === 'Enter' && addFriend()}
           />
         </div>
@@ -565,98 +856,171 @@ function App() {
       )}
 
       {friends.length > 0 && (
-        <button className="btn" onClick={() => {
-          if (selectedRestaurant === 'Custom Restaurant') {
-            setCurrentStep('menu');
-          } else {
-            setCurrentStep('orders');
-          }
-        }}>
-          {selectedRestaurant === 'Custom Restaurant' ? 'Continue to Create Menu' : 'Continue to Orders'}
-        </button>
+        <>
+          <button className="btn" onClick={() => setCurrentStep('menu')}>
+            {selectedRestaurant === 'Custom Restaurant' ? 'Continue to Create Menu' : 'Continue to Manage Menu'}
+          </button>
+          {selectedRestaurant !== 'Custom Restaurant' && (
+            <button className="btn btn-secondary" onClick={() => setCurrentStep('orders')}>
+              Skip to Orders
+            </button>
+          )}
+        </>
       )}
     </div>
   );
 
-  const renderMenuSection = () => (
-    <div className="card">
-      <h2>📋 Create Menu for {restaurantName}</h2>
-      
-      <div className="form-group">
-        <h3>Add Menu Item</h3>
-        <div className="row">
-          <div className="col">
-            <input
-              type="text"
-              className="form-control"
-              value={newItemName}
-              onChange={(e) => setNewItemName(e.target.value)}
-              placeholder="Item name"
-            />
-          </div>
-          <div className="col">
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              className="form-control"
-              value={newItemPrice}
-              onChange={(e) => setNewItemPrice(e.target.value)}
-              placeholder="Price"
-            />
-          </div>
-          <div className="col">
-            <select
-              value={newItemCategory}
-              onChange={(e) => setNewItemCategory(e.target.value)}
-              className="form-control"
-            >
-              <option value="Starter">Starter</option>
-              <option value="Main">Main</option>
-              <option value="Dessert">Dessert</option>
-              <option value="Drink">Drink</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
-          <div className="col">
-            <button className="btn" onClick={addCustomMenuItem}>Add Item</button>
-          </div>
-        </div>
-      </div>
-
-      {customMenuItems.length > 0 && (
-        <div>
-          <h3>Menu Items ({customMenuItems.length})</h3>
-          <div className="item-list">
-            {customMenuItems.map((item, index) => (
-              <div key={index} className="item">
-                <div>
-                  <strong>{item.name}</strong> - {item.price.toFixed(2)} kr
-                  <div style={{fontSize: '14px', color: '#666'}}>{item.category}</div>
+  const renderMenuSection = () => {
+    const restaurantData = getSelectedRestaurantData();
+    const isCustomRestaurant = selectedRestaurant === 'Custom Restaurant';
+    const builtInItems = restaurantData ? restaurantData.menu || [] : [];
+    const customItems = isCustomRestaurant ? customMenuItems : (restaurantCustomItems[selectedRestaurant] || []);
+    const allMenuItems = isCustomRestaurant ? customItems : [...builtInItems, ...customItems];
+    
+    return (
+      <div className="card">
+        <h2>📋 {isCustomRestaurant ? 'Create Menu for' : 'Manage Menu for'} {restaurantName}</h2>
+        
+        {!isCustomRestaurant && builtInItems.length > 0 && (
+          <div style={{marginBottom: '20px'}}>
+            <h3>Built-in Menu Items ({builtInItems.length})</h3>
+            <div className="item-list">
+              {builtInItems.map((item, index) => (
+                <div key={`builtin-${index}`} className="item">
+                  <div>
+                    <strong>{item.name}</strong> - {item.price.toFixed(2)} kr
+                    <div style={{fontSize: '14px', color: '#666'}}>
+                      {item.category}
+                      {item.is_course_item && ' (Course Item)'}
+                    </div>
+                  </div>
+                  <div style={{float: 'right', fontSize: '12px', color: '#888', padding: '5px 8px'}}>
+                    Built-in
+                  </div>
                 </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        <div className="form-group">
+          <h3>{isEditMode ? 'Edit Menu Item' : `Add ${isCustomRestaurant ? '' : 'Custom'} Menu Item`}</h3>
+          <div className="row">
+            <div className="col">
+              <input
+                type="text"
+                className="form-control"
+                value={newItemName}
+                onChange={(e) => setNewItemName(sanitizeTextInput(e.target.value))}
+                placeholder="Item name"
+                maxLength="100"
+              />
+            </div>
+            <div className="col">
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="99999.99"
+                className="form-control"
+                value={newItemPrice}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  // Only allow valid number input
+                  if (val === '' || /^\d*\.?\d{0,2}$/.test(val)) {
+                    setNewItemPrice(val);
+                  }
+                }}
+                placeholder="Price"
+              />
+            </div>
+            <div className="col">
+              <select
+                value={newItemCategory}
+                onChange={(e) => setNewItemCategory(e.target.value)}
+                className="form-control"
+              >
+                <option value="Starter">Starter</option>
+                <option value="Main">Main</option>
+                <option value="Dessert">Dessert</option>
+                <option value="Drink">Drink</option>
+                <option value="Other">Other</option>
+                <option value="Table">Table (Shared)</option>
+              </select>
+            </div>
+            <div className="col">
+              {isEditMode ? (
+                <>
+                  <button className="btn btn-success" onClick={saveEditedItem} style={{marginRight: '5px'}}>
+                    Save
+                  </button>
+                  <button className="btn btn-secondary" onClick={cancelEdit}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
                 <button 
-                  className="btn btn-secondary"
-                  onClick={() => removeCustomMenuItem(index)}
-                  style={{float: 'right', fontSize: '12px', padding: '5px 8px'}}
+                  className="btn" 
+                  onClick={isCustomRestaurant ? addCustomMenuItem : addCustomItemToRestaurant}
                 >
-                  Remove
+                  Add Item
                 </button>
-              </div>
-            ))}
+              )}
+            </div>
           </div>
         </div>
-      )}
 
-      {customMenuItems.length > 0 && (
-        <button className="btn" onClick={() => setCurrentStep('orders')}>
-          Continue to Orders
-        </button>
-      )}
-    </div>
-  );
+        {customItems.length > 0 && (
+          <div>
+            <h3>{isCustomRestaurant ? 'Menu Items' : 'Custom Menu Items'} ({customItems.length})</h3>
+            <div className="item-list">
+              {customItems.map((item, index) => (
+                <div key={isCustomRestaurant ? `custom-${index}` : `restaurant-custom-${item.id}`} className="item">
+                  <div>
+                    <strong>{item.name}</strong> - {item.price.toFixed(2)} kr
+                    <div style={{fontSize: '14px', color: '#666'}}>
+                      {item.category}
+                      {item.is_course_item && ' (Course Item)'}
+                      {!isCustomRestaurant && ' (Custom)'}
+                    </div>
+                  </div>
+                  <div style={{float: 'right'}}>
+                    {!isCustomRestaurant && (
+                      <button 
+                        className="btn btn-primary"
+                        onClick={() => editCustomItem(item)}
+                        style={{fontSize: '12px', padding: '2px 6px', marginRight: '5px'}}
+                      >
+                        Edit
+                      </button>
+                    )}
+                    <button 
+                      className="btn btn-secondary"
+                      onClick={() => isCustomRestaurant ? removeCustomMenuItem(index) : removeCustomItemFromRestaurant(item.id)}
+                      style={{fontSize: '12px', padding: '2px 6px'}}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {allMenuItems.length > 0 && (
+          <button className="btn" onClick={() => setCurrentStep('orders')}>
+            Continue to Orders
+          </button>
+        )}
+      </div>
+    );
+  };
 
   const renderOrdersSection = () => {
-    const menuItems = getAllMenuItems();
+    const allItems = getAllMenuItems();
+    const menuItems = allItems.filter(item => item.category !== 'Table'); // Filter out Table items for individual orders
+    const tableItems = allItems.filter(item => item.category === 'Table'); // Table items only
     const restaurantData = getSelectedRestaurantData();
     const isCourseBasedRestaurant = restaurantData && restaurantData.pricing_model === 'course_based';
     
@@ -696,9 +1060,10 @@ function App() {
                   <label>Add Item:</label>
                   <select
                     onChange={(e) => {
-                      if (e.target.value) {
-                        const selectedItem = menuItems.find(item => item.name === e.target.value);
-                        if (selectedItem) {
+                      const selectedValue = e.target.value;
+                      if (selectedValue) {
+                        const selectedItem = menuItems.find(item => item.name === selectedValue);
+                        if (selectedItem && selectedValue === selectedItem.name) {
                           addItemToFriendOrder(friend, selectedItem);
                         }
                         e.target.value = '';
@@ -765,6 +1130,88 @@ function App() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Table Orders Section */}
+        {tableItems.length > 0 && (
+          <div style={{marginTop: '30px', marginBottom: '20px'}}>
+            <h3>🍻 Table Orders (Shared Items)</h3>
+            <p style={{color: '#666', fontSize: '14px', marginBottom: '15px'}}>
+              These items will be split equally among all party members.
+            </p>
+            
+            <div style={{marginBottom: '15px'}}>
+              <label>Add Table Item:</label>
+              <select
+                onChange={(e) => {
+                  const selectedValue = e.target.value;
+                  if (selectedValue) {
+                    const selectedItem = tableItems.find(item => item.name === selectedValue);
+                    if (selectedItem && selectedValue === selectedItem.name) {
+                      addItemToTableOrders(selectedItem);
+                    }
+                    e.target.value = '';
+                  }
+                }}
+                className="form-control"
+                defaultValue=""
+              >
+                <option value="">Select a table item...</option>
+                {tableItems.map((item, index) => (
+                  <option key={index} value={item.name}>
+                    {item.name} - {item.price.toFixed(2)} kr ({item.category})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {tableOrders.length > 0 && (
+              <div>
+                <h5>Current Table Orders:</h5>
+                <div className="item-list">
+                  {tableOrders.map((orderItem) => (
+                    <div key={orderItem.id} className="item">
+                      <div>
+                        <strong>{orderItem.name}</strong> - {orderItem.cost.toFixed(2)} kr each
+                        <div style={{fontSize: '14px', color: '#666'}}>
+                          {orderItem.category} • Total: {(orderItem.cost * orderItem.quantity).toFixed(2)} kr 
+                          • Split: {friends.length > 0 ? ((orderItem.cost * orderItem.quantity) / friends.length).toFixed(2) : '0.00'} kr per person
+                        </div>
+                      </div>
+                      <div style={{float: 'right', display: 'flex', alignItems: 'center', gap: '5px'}}>
+                        <div className="quantity-control">
+                          <button 
+                            className="quantity-btn"
+                            onClick={() => updateTableItemQuantity(orderItem.id, orderItem.quantity - 1)}
+                          >
+                            -
+                          </button>
+                          <span className="quantity-display">{orderItem.quantity}</span>
+                          <button 
+                            className="quantity-btn"
+                            onClick={() => updateTableItemQuantity(orderItem.id, orderItem.quantity + 1)}
+                          >
+                            +
+                          </button>
+                        </div>
+                        <button 
+                          className="btn btn-secondary"
+                          onClick={() => removeTableItem(orderItem.id)}
+                          style={{fontSize: '12px', padding: '2px 6px'}}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {tableOrders.length === 0 && (
+              <p style={{color: '#666', fontStyle: 'italic'}}>No table items ordered yet</p>
+            )}
           </div>
         )}
 
@@ -839,14 +1286,14 @@ function App() {
                         {coursePricing.courseCount > 0 && (
                           <div style={{marginBottom: '10px'}}>
                             <strong>Course Menu ({coursePricing.courseCount} course{coursePricing.courseCount > 1 ? 's' : ''}): {coursePricing.basePrice.toFixed(2)} kr</strong>
-                            <ul>
+                            <div>
                               {coursePricing.courseItems.map((item, index) => (
-                                <li key={index}>
+                                <div key={index} style={{paddingLeft: '20px', marginBottom: '5px'}}>
                                   {item.name} ({item.category})
                                   {item.surcharge > 0 && <span> + {item.surcharge.toFixed(2)} kr surcharge</span>}
-                                </li>
+                                </div>
                               ))}
-                            </ul>
+                            </div>
                             {coursePricing.surcharges > 0 && (
                               <div><strong>Total surcharges: {coursePricing.surcharges.toFixed(2)} kr</strong></div>
                             )}
@@ -855,30 +1302,45 @@ function App() {
                         {coursePricing.nonCourseItems.length > 0 && (
                           <div>
                             <strong>Additional Items:</strong>
-                            <ul>
+                            <div>
                               {coursePricing.nonCourseItems.map((item, index) => (
-                                <li key={index}>
+                                <div key={index} style={{paddingLeft: '20px', marginBottom: '5px'}}>
                                   {item.name} {item.quantity > 1 ? `× ${item.quantity}` : ''} - {(item.cost * item.quantity).toFixed(2)} kr
                                   {item.quantity > 1 && <span style={{color: '#666'}}> ({item.cost.toFixed(2)} kr each)</span>}
-                                </li>
+                                </div>
                               ))}
-                            </ul>
+                            </div>
                           </div>
                         )}
                       </div>
                     ) : (
-                      <ul>
+                      <div>
                         {friendItems.map((item) => (
-                          <li key={item.id}>
+                          <div key={item.id} style={{paddingLeft: '20px', marginBottom: '5px'}}>
                             {item.name} {item.quantity > 1 ? `× ${item.quantity}` : ''} - {(item.cost * item.quantity).toFixed(2)} kr
                             {item.quantity > 1 && <span style={{color: '#666'}}> ({item.cost.toFixed(2)} kr each)</span>}
-                          </li>
+                          </div>
                         ))}
-                      </ul>
+                      </div>
                     )}
                   </div>
                 ) : (
                   <p style={{color: '#666', fontStyle: 'italic'}}>No items ordered</p>
+                )}
+                
+                {/* Show table share for each friend */}
+                {tableOrders.length > 0 && (
+                  <div style={{marginTop: '10px'}}>
+                    <strong>Table Items Share: {calculateTableCostPerFriend().toFixed(2)} kr</strong>
+                    <div style={{fontSize: '14px', color: '#666', paddingLeft: '20px'}}>
+                      {tableOrders.map((item) => (
+                        <div key={item.id} style={{marginBottom: '2px'}}>
+                          {item.name} {item.quantity > 1 ? `× ${item.quantity}` : ''} - {friends.length > 0 ? ((item.cost * item.quantity) / friends.length).toFixed(2) : '0.00'} kr
+                          <span style={{color: '#888'}}> (shared)</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             );
@@ -903,9 +1365,7 @@ function App() {
           <button className="btn" onClick={() => setCurrentStep('start')}>Home</button>
           {partyName && <button className="btn" onClick={() => setCurrentStep('party')}>Party Setup</button>}
           {friends.length > 0 && <button className="btn" onClick={() => setCurrentStep('friends')}>Friends</button>}
-          {selectedRestaurant === 'Custom Restaurant' && customMenuItems.length > 0 && (
-            <button className="btn" onClick={() => setCurrentStep('menu')}>Menu</button>
-          )}
+          <button className="btn" onClick={() => setCurrentStep('menu')}>Menu</button>
           {((selectedRestaurant !== 'Custom Restaurant') || customMenuItems.length > 0) && friends.length > 0 && (
             <button className="btn" onClick={() => setCurrentStep('orders')}>Orders</button>
           )}
